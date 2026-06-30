@@ -7,6 +7,7 @@ mkdir -p /var/log/cron
 
 HEALTH_CHECK_SCRIPT="/usr/local/bin/check-app.sh"
 AUTH_CLEANUP_SCRIPT="/usr/local/bin/proworkspace-auth-cleanup.sh"
+ZERUX_BIN="/app/packages/zeruxjs/dist/bin/zerux.js"
 
 cat <<'EOF' > "$HEALTH_CHECK_SCRIPT"
 #!/bin/sh
@@ -16,7 +17,7 @@ LOG_FILE="/app/.zerux/log/cron-start.log"
 
 if [ ! -f "$SERVER_FILE" ]; then
     echo "$(date) - server.json missing, starting app..." >> "$LOG_FILE"
-    cd /app && npm run dev >> "$LOG_FILE" 2>&1 &
+    cd /app && node /app/packages/zeruxjs/dist/bin/zerux.js dev >> "$LOG_FILE" 2>&1 &
     exit 0
 fi
 
@@ -24,7 +25,7 @@ APP_URL=$(grep -A2 '"type": "app"' "$SERVER_FILE" | grep '127.0.0.1' | head -n1 
 
 if [ -z "$APP_URL" ]; then
     echo "$(date) - app URL not found, starting app..." >> "$LOG_FILE"
-    cd /app && npm run dev >> "$LOG_FILE" 2>&1 &
+    cd /app && node /app/packages/zeruxjs/dist/bin/zerux.js dev >> "$LOG_FILE" 2>&1 &
     exit 0
 fi
 
@@ -33,7 +34,7 @@ if ! curl -fs "$APP_URL" >/dev/null 2>&1; then
 
     pkill -f "node" || true
 
-    cd /app && npm run dev >> "$LOG_FILE" 2>&1 &
+    cd /app && node /app/packages/zeruxjs/dist/bin/zerux.js dev >> "$LOG_FILE" 2>&1 &
 else
     echo "$(date) - app healthy" >> "$LOG_FILE"
 fi
@@ -94,5 +95,5 @@ crond
 
 exec sh -c "
 : > /app/.zerux/log/current.log && \
-npm run dev 2>&1 | tee /app/.zerux/log/current.log
+node "$ZERUX_BIN" dev 2>&1 | tee /app/.zerux/log/current.log
 "
