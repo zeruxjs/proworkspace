@@ -1,0 +1,14 @@
+node_modules/
+**/node_modules/
+build/
+.next/
+coverage/
+.zerux/log/
+*.log
+.env
+.env.*
+notes/
+cache-test.ts
+*.tsbuildinfo
+.DS_Store
+.git/

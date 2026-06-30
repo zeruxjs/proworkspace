@@ -14,6 +14,7 @@ RUN apk add --no-cache \
     dcron
 
 COPY package*.json ./
+COPY packages ./packages
 
 RUN npm install
 
@@ -25,7 +26,7 @@ RUN npm run build
 RUN mkdir -p /var/log/cron
 
 # Copy startup script
-COPY docker/start.sh /start.sh
+COPY scripts/start.sh /start.sh
 RUN chmod +x /start.sh
 
 EXPOSE 3000
@@ -33,4 +34,4 @@ EXPOSE 9000
 
 ENTRYPOINT ["/sbin/tini", "--"]
 
-CMD ["npm", "start"]
+CMD ["/start.sh"]
