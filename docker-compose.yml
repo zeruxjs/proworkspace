@@ -93,8 +93,8 @@ services:
     restart: unless-stopped
     command: -conf /etc/coredns/Corefile
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "${COREDNS_BIND_IP:-0.0.0.0}:${COREDNS_PORT:-53}:53/udp"
+      - "${COREDNS_BIND_IP:-0.0.0.0}:${COREDNS_PORT:-53}:53/tcp"
     volumes:
       - ./generated/coredns:/etc/coredns:ro
     depends_on:
