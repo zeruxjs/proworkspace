@@ -24,10 +24,32 @@ services:
     container_name: proworkspace-app
     restart: unless-stopped
     working_dir: /app
-    env_file:
-      - ./generated/app.env
     environment:
       HOSTNAME: 0.0.0.0
+      NODE_ENV: ${NODE_ENV}
+      ENVIRONMENT: ${ENVIRONMENT}
+      MAIN_DOMAIN: ${MAIN_DOMAIN}
+      NS_DOMAIN: ${NS_DOMAIN}
+      DNS_DOMAIN: ${DNS_DOMAIN}
+      DEV_DOMAIN: ${DEV_DOMAIN}
+      AUTH_DOMAIN: ${AUTH_DOMAIN}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DB_HOST: postgres
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_PORT: 5432
+      DB_PREFIX: ${DB_PREFIX:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY}
+      PROMETHEUS_URL: http://prometheus:9090
     volumes:
       - ./apps/proworkspace:/app
       - ./logs/proworkspace:/app/.zerux/log
