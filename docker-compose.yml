@@ -53,8 +53,7 @@ services:
     volumes:
       - ./apps/proworkspace:/app
       - ./logs/proworkspace:/app/.zerux/log
-    command: >
-      sh -c "mkdir -p /app/.zerux/log && : > /app/.zerux/log/current.log && npm run dev 2>&1 | tee /app/.zerux/log/current.log"
+    command: /start.sh
     ports:
       - "${APP_PORT}:3000"
       - "9000:9000"
