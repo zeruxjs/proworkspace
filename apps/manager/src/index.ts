@@ -243,8 +243,8 @@ server {
 }
 
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+    listen 80;
+    listen [::]:80;
     server_name _;
 
     location ^~ /.well-known/acme-challenge/ {
