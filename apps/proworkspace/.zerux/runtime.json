@@ -1,0 +1,513 @@
+{
+  "generatedAt": "2026-06-12T15:12:48.037Z",
+  "mode": "dev",
+  "rootDir": "/app",
+  "entryModulePath": null,
+  "config": {
+    "type": "fix",
+    "websocket": {
+      "enabled": true,
+      "path": "/ws"
+    },
+    "multisite": true,
+    "devtools": {
+      "modules": []
+    },
+    "allowedDomains": "*",
+    "allowedDevDomain": "zdev.shubkb.me",
+    "theme": {
+      "default": "system",
+      "cookieName": "theme",
+      "disablePrefrenceHeader": false,
+      "scriptPosition": "head",
+      "scriptType": "module",
+      "scriptLoadType": "async"
+    },
+    "apiKeys": {},
+    "security": {
+      "keys": {
+        "nonce": "default-nonce-key-change-me",
+        "cookie": "default-cookie-key-change-me",
+        "session": "default-session-key-change-me",
+        "personalToken": "default-personal-token-key-change-me",
+        "password": "default-password-key-change-me",
+        "encryption": "default-encryption-key-change-me",
+        "p2p": "default-p2p-key-change-me"
+      },
+      "salts": {
+        "nonce": "default-nonce-salt-change-me",
+        "cookie": "default-cookie-salt-change-me",
+        "session": "default-session-salt-change-me",
+        "personalToken": "default-personal-token-salt-change-me",
+        "password": "default-password-salt-change-me",
+        "encryption": "default-encryption-salt-change-me",
+        "p2p": "default-p2p-salt-change-me"
+      }
+    },
+    "auth": {
+      "db": {
+        "usersTable": "users",
+        "rolesTable": "roles",
+        "usermetaTable": "usermeta",
+        "fields": {
+          "userId": "id",
+          "email": "email",
+          "passwordHash": "password",
+          "role": "role"
+        }
+      },
+      "session": {
+        "expiresIn": 86400
+      },
+      "sso": {
+        "google": {
+          "clientId": "",
+          "clientSecret": "",
+          "redirectUri": "http://localhost:3000/api/auth/sso/google/callback",
+          "buttonName": "Sign in with Google",
+          "logoUrl": "/assets/images/google.svg"
+        }
+      }
+    }
+  },
+  "structure": {
+    "mode": "fix",
+    "serviceName": "zerux",
+    "entryPointName": "index",
+    "appDir": "/app/app",
+    "middlewareDirs": [
+      "/app/middleware"
+    ],
+    "controllerDirs": [
+      "/app/controllers"
+    ],
+    "composableDirs": [
+      "/app/composables"
+    ],
+    "pluginDirs": [
+      "/app/plugins"
+    ],
+    "publicDirs": [
+      "/app/public"
+    ],
+    "envFiles": [
+      "/app/.env",
+      "/app/.env.local",
+      "/app/.env.development",
+      "/app/.env.development.local"
+    ],
+    "outputDir": "/app/.zerux",
+    "raw": {
+      "app": "app",
+      "middleware": [
+        "middleware"
+      ],
+      "controllers": [
+        "controllers"
+      ],
+      "composables": [
+        "composables"
+      ],
+      "plugins": [
+        "plugins"
+      ],
+      "public": [
+        "public"
+      ],
+      "env": []
+    }
+  },
+  "middleware": [
+    "connect-db",
+    "delete-db",
+    "middleware/connect-db",
+    "middleware/delete-db",
+    "middleware/site",
+    "site"
+  ],
+  "globalMiddleware": [
+    "connect-db",
+    "delete-db",
+    "site"
+  ],
+  "controllers": [
+    "controllers/status",
+    "status"
+  ],
+  "composables": [
+    "composables/formatSlug",
+    "composables/runtimeSummary",
+    "formatSlug",
+    "runtimeSummary"
+  ],
+  "workers": [],
+  "threadWorkers": [],
+  "routes": [
+    {
+      "id": "app/{accounts}/api/auth/cleanup-signups/route",
+      "path": "/{accounts}/api/auth/cleanup-signups",
+      "file": "app/{accounts}/api/auth/cleanup-signups/route.ts",
+      "methods": [
+        "POST"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/api/admin-sites/route",
+      "path": "/{admin}/api/admin-sites",
+      "file": "app/{admin}/api/admin-sites/route.ts",
+      "methods": [
+        "DELETE",
+        "GET",
+        "POST",
+        "PUT"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{notes}/api/workspace/route",
+      "path": "/{notes}/api/workspace",
+      "file": "app/{notes}/api/workspace/route.ts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{installer}/api/create-site/route",
+      "path": "/installer/api/create-site",
+      "file": "app/{installer}/api/create-site/route.ts",
+      "methods": [
+        "POST"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{installer}/api/notice-language/route",
+      "path": "/installer/api/notice-language",
+      "file": "app/{installer}/api/notice-language/route.ts",
+      "methods": [
+        "GET"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/services/[service]/page",
+      "path": "/{admin}/services/:service",
+      "file": "app/{admin}/services/[service]/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{accounts}/signin/page",
+      "path": "/{accounts}/signin",
+      "file": "app/{accounts}/signin/page.ts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{accounts}/signup/page",
+      "path": "/{accounts}/signup",
+      "file": "app/{accounts}/signup/page.ts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/apps/page",
+      "path": "/{admin}/apps",
+      "file": "app/{admin}/apps/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/domains/page",
+      "path": "/{admin}/domains",
+      "file": "app/{admin}/domains/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/groups/page",
+      "path": "/{admin}/groups",
+      "file": "app/{admin}/groups/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/security/page",
+      "path": "/{admin}/security",
+      "file": "app/{admin}/security/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/settings/page",
+      "path": "/{admin}/settings",
+      "file": "app/{admin}/settings/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/users/page",
+      "path": "/{admin}/users",
+      "file": "app/{admin}/users/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/api/echo/route",
+      "path": "/api/echo",
+      "file": "app/api/echo/route.ts",
+      "methods": [
+        "POST"
+      ],
+      "middleware": [
+        "request-context",
+        "trace-runtime"
+      ]
+    },
+    {
+      "id": "app/api/health/route",
+      "path": "/api/health",
+      "file": "app/api/health/route.ts",
+      "methods": [
+        "GET"
+      ],
+      "middleware": [
+        "request-context",
+        "trace-runtime"
+      ]
+    },
+    {
+      "id": "app/{installer}/install/page",
+      "path": "/installer/install",
+      "file": "app/{installer}/install/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{default}/[any]/page",
+      "path": "/{default}/:any",
+      "file": "app/{default}/[any]/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{notes}/[any]/page",
+      "path": "/{notes}/:any",
+      "file": "app/{notes}/[any]/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{installer}/[any]/page",
+      "path": "/installer/:any",
+      "file": "app/{installer}/[any]/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{accounts}/page",
+      "path": "/{accounts}",
+      "file": "app/{accounts}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{admin}/page",
+      "path": "/{admin}",
+      "file": "app/{admin}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{ai}/page",
+      "path": "/{ai}",
+      "file": "app/{ai}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{chat}/page",
+      "path": "/{chat}",
+      "file": "app/{chat}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{default}/page",
+      "path": "/{default}",
+      "file": "app/{default}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{drive}/page",
+      "path": "/{drive}",
+      "file": "app/{drive}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{forms}/page",
+      "path": "/{forms}",
+      "file": "app/{forms}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{git}/page",
+      "path": "/{git}",
+      "file": "app/{git}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{mail}/page",
+      "path": "/{mail}",
+      "file": "app/{mail}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{notes}/page",
+      "path": "/{notes}",
+      "file": "app/{notes}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{office}/page",
+      "path": "/{office}",
+      "file": "app/{office}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{passwords}/page",
+      "path": "/{passwords}",
+      "file": "app/{passwords}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{tools}/page",
+      "path": "/{tools}",
+      "file": "app/{tools}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    },
+    {
+      "id": "app/{installer}/page",
+      "path": "/installer",
+      "file": "app/{installer}/page.ts",
+      "methods": [
+        "ALL"
+      ],
+      "middleware": []
+    }
+  ],
+  "publicFiles": [
+    "/admin/admin.css",
+    "/admin/admin.js",
+    "/installer/en-data-handling.md",
+    "/installer/en-privacy.md",
+    "/installer/en-tos.md",
+    "/installer/fr-data-handling.md",
+    "/installer/fr-privacy.md",
+    "/installer/fr-tos.md",
+    "/installer/hi-data-handling.md",
+    "/installer/hi-privacy.md",
+    "/installer/hi-tos.md",
+    "/installer/id-data-handling.md",
+    "/installer/id-privacy.md",
+    "/installer/id-tos.md",
+    "/installer/it-data-handling.md",
+    "/installer/it-privacy.md",
+    "/installer/it-tos.md",
+    "/installer/ja-data-handling.md",
+    "/installer/ja-privacy.md",
+    "/installer/ja-tos.md",
+    "/installer/ko-data-handling.md",
+    "/installer/ko-privacy.md",
+    "/installer/ko-tos.md",
+    "/installer/nl-data-handling.md",
+    "/installer/nl-privacy.md",
+    "/installer/nl-tos.md",
+    "/installer/pt-data-handling.md",
+    "/installer/pt-privacy.md",
+    "/installer/pt-tos.md",
+    "/installer/ru-data-handling.md",
+    "/installer/ru-privacy.md",
+    "/installer/ru-tos.md",
+    "/installer/sv-data-handling.md",
+    "/installer/sv-privacy.md",
+    "/installer/sv-tos.md",
+    "/installer/zh-CN-data-handling.md",
+    "/installer/zh-CN-privacy.md",
+    "/installer/zh-CN-tos.md",
+    "/installer/zh-TW-data-handling.md",
+    "/installer/zh-TW-privacy.md",
+    "/installer/zh-TW-tos.md",
+    "/notes/icon.svg",
+    "/notes/manifest.webmanifest",
+    "/notes/notes.css",
+    "/notes/notes.js",
+    "/notes/service-worker.js"
+  ]
+}

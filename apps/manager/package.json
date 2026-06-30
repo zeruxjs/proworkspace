@@ -1,0 +1,29 @@
+{
+  "name": "prospace",
+  "version": "0.0.1",
+  "description": "A Pro Workspace for all your needs",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": " ",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "dockerode": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "fs-extra": "^11.3.5",
+    "lodash": "^4.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^4.0.1",
+    "@types/fs-extra": "^11.0.4",
+    "@types/lodash": "^4.17.24",
+    "@types/node": "^25.6.0"
+  }
+}

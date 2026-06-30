@@ -1,0 +1,226 @@
+{
+  "appName": "prospace",
+  "mode": "dev",
+  "rootDir": "/app",
+  "manifestPath": "/app/.zerux/runtime.json",
+  "logFilePath": "/app/.zerux/log/app.log",
+  "loadedEnvFiles": [],
+  "routes": [
+    {
+      "path": "/{accounts}/api/auth/cleanup-signups",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/{admin}/api/admin-sites",
+      "methods": [
+        "DELETE",
+        "GET",
+        "POST",
+        "PUT"
+      ]
+    },
+    {
+      "path": "/{notes}/api/workspace",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/installer/api/create-site",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/installer/api/notice-language",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/{admin}/services/:service",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{accounts}/signin",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/{accounts}/signup",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    },
+    {
+      "path": "/{admin}/apps",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}/domains",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}/groups",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}/security",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}/settings",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}/users",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/api/echo",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/api/health",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/installer/install",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{default}/:any",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{notes}/:any",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/installer/:any",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{accounts}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{admin}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{ai}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{chat}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{default}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{drive}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{forms}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{git}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{mail}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{notes}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{office}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{passwords}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/{tools}",
+      "methods": [
+        "ALL"
+      ]
+    },
+    {
+      "path": "/installer",
+      "methods": [
+        "ALL"
+      ]
+    }
+  ],
+  "devtools": {
+    "modules": []
+  },
+  "updatedAt": "2026-06-12T15:12:48.043Z",
+  "workers": [],
+  "threadWorkers": []
+}

@@ -1,0 +1,457 @@
+{
+    "req": {
+        "_events": {},
+        "_readableState": {
+            "highWaterMark": 65536,
+            "buffer": [],
+            "bufferIndex": 0,
+            "length": 0,
+            "pipes": [],
+            "awaitDrainWriters": null
+        },
+        "socket": {
+            "connecting": false,
+            "_hadError": false,
+            "_parent": null,
+            "_host": null,
+            "_closeAfterHandlingError": false,
+            "_events": {
+                "close": [
+                    null,
+                    null
+                ],
+                "end": [
+                    null,
+                    null
+                ]
+            },
+            "_readableState": {
+                "highWaterMark": 65536,
+                "buffer": [],
+                "bufferIndex": 0,
+                "length": 0,
+                "pipes": [],
+                "awaitDrainWriters": null
+            },
+            "_writableState": {
+                "highWaterMark": 65536,
+                "length": 0,
+                "corked": 0,
+                "writelen": 0,
+                "bufferedIndex": 0,
+                "pendingcb": 0
+            },
+            "allowHalfOpen": true,
+            "_eventsCount": 8,
+            "_sockname": null,
+            "_pendingData": null,
+            "_pendingEncoding": "",
+            "server": {
+                "requestTimeout": 300000,
+                "headersTimeout": 60000,
+                "keepAliveTimeout": 5000,
+                "keepAliveTimeoutBuffer": 1000,
+                "connectionsCheckingInterval": 30000,
+                "requireHostHeader": true,
+                "rejectNonStandardBodyWrites": false,
+                "_events": {},
+                "_eventsCount": 3,
+                "_connections": 1,
+                "_handle": {
+                    "reading": false
+                },
+                "_usingWorkers": false,
+                "_workers": [],
+                "_unref": false,
+                "_listeningId": 2,
+                "allowHalfOpen": true,
+                "pauseOnConnect": false,
+                "noDelay": true,
+                "keepAlive": false,
+                "keepAliveInitialDelay": 0,
+                "highWaterMark": 65536,
+                "httpAllowHalfOpen": false,
+                "timeout": 0,
+                "maxHeadersCount": null,
+                "maxRequestsPerSocket": 0,
+                "_connectionKey": "6::::3010"
+            },
+            "parser": {
+                "0": null,
+                "_headers": [],
+                "_url": "",
+                "outgoing": null,
+                "maxHeaderPairs": 2000,
+                "_consumed": true,
+                "joinDuplicateHeaders": null
+            },
+            "_paused": false,
+            "_httpMessage": {
+                "_events": {},
+                "_eventsCount": 1,
+                "outputData": [],
+                "outputSize": 0,
+                "writable": true,
+                "destroyed": false,
+                "_last": false,
+                "chunkedEncoding": false,
+                "shouldKeepAlive": true,
+                "maxRequestsOnConnectionReached": false,
+                "_defaultKeepAlive": true,
+                "useChunkedEncodingByDefault": true,
+                "sendDate": true,
+                "_removedConnection": false,
+                "_removedContLen": false,
+                "_removedTE": false,
+                "strictContentLength": false,
+                "_contentLength": null,
+                "_hasBody": true,
+                "_trailer": "",
+                "finished": false,
+                "_headerSent": false,
+                "_closed": false,
+                "_header": null,
+                "_keepAliveTimeout": 5000,
+                "_sent100": false,
+                "_expect_continue": false,
+                "_maxRequestsPerSocket": 0
+            }
+        },
+        "httpVersionMajor": 1,
+        "httpVersionMinor": 1,
+        "httpVersion": "1.1",
+        "complete": false,
+        "rawHeaders": [
+            "Host",
+            "zerux.shubkb.me",
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+            "Accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "Accept-Encoding",
+            "gzip, br",
+            "Accept-Language",
+            "en,hi;q=0.9",
+            "Cdn-Loop",
+            "cloudflare; loops=1",
+            "Cf-Connecting-Ip",
+            "223.178.210.77",
+            "Cf-Ipcountry",
+            "IN",
+            "Cf-Ray",
+            "9f998907ef13fb98-MRS",
+            "Cf-Visitor",
+            "{\"scheme\":\"https\"}",
+            "Cf-Warp-Tag-Id",
+            "cb0c8e0b-1a63-46ed-90bf-81da4e9d3277",
+            "Connection",
+            "keep-alive",
+            "Priority",
+            "u=0, i",
+            "Sec-Ch-Ua",
+            "\"Google Chrome\";v=\"147\", \"Not.A/Brand\";v=\"8\", \"Chromium\";v=\"147\"",
+            "Sec-Ch-Ua-Mobile",
+            "?0",
+            "Sec-Ch-Ua-Platform",
+            "\"Linux\"",
+            "Sec-Fetch-Dest",
+            "document",
+            "Sec-Fetch-Mode",
+            "navigate",
+            "Sec-Fetch-Site",
+            "none",
+            "Sec-Fetch-User",
+            "?1",
+            "Upgrade-Insecure-Requests",
+            "1",
+            "X-Forwarded-For",
+            "223.178.210.77",
+            "X-Forwarded-Proto",
+            "https"
+        ],
+        "rawTrailers": [],
+        "joinDuplicateHeaders": null,
+        "aborted": false,
+        "upgrade": false,
+        "url": "/blog/zerux-runtime",
+        "method": "GET",
+        "statusCode": null,
+        "statusMessage": null,
+        "_consuming": false,
+        "_dumped": false
+    },
+    "method": "GET",
+    "url": "http://127.0.0.1/blog/zerux-runtime",
+    "pathname": "/blog/zerux-runtime",
+    "params": {
+        "slug": "zerux-runtime"
+    },
+    "query": {},
+    "logger": {
+        "filePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/.zerux/log/app.log",
+        "fileLevel": "debug",
+        "stream": {
+            "fd": 29,
+            "path": "/home/shubham/Dev/proworkspace/apps/proworkspace/.zerux/log/app.log",
+            "flags": "a",
+            "mode": 438,
+            "flush": false,
+            "bytesWritten": 6154,
+            "_events": {},
+            "_writableState": {
+                "highWaterMark": 65536,
+                "length": 103,
+                "corked": 0,
+                "writelen": 103,
+                "bufferedIndex": 0,
+                "pendingcb": 1
+            },
+            "_eventsCount": 0
+        }
+    },
+    "config": {
+        "type": "fix",
+        "devtools": {
+            "modules": []
+        },
+        "allowedDomains": [
+            "zerux.shubkb.me"
+        ],
+        "allowedDevDomain": "zdev.shubkb.me",
+        "apiKeys": {}
+    },
+    "runtime": {
+        "rootDir": "/home/shubham/Dev/proworkspace/apps/proworkspace",
+        "mode": "dev",
+        "structure": {
+            "mode": "fix",
+            "rootDir": "/home/shubham/Dev/proworkspace/apps/proworkspace",
+            "serviceName": "zerux",
+            "entryPointName": "index",
+            "appDir": "/home/shubham/Dev/proworkspace/apps/proworkspace/app",
+            "middlewareDirs": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/app/middleware",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/middleware"
+            ],
+            "controllerDirs": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/app/controllers",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/controllers"
+            ],
+            "composableDirs": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/app/composables",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/composables"
+            ],
+            "pluginDirs": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/plugins"
+            ],
+            "publicDirs": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/public"
+            ],
+            "envFiles": [
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/.env",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/.env.local",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/.env.development",
+                "/home/shubham/Dev/proworkspace/apps/proworkspace/.env.development.local"
+            ],
+            "outputDir": "/home/shubham/Dev/proworkspace/apps/proworkspace/.zerux",
+            "raw": {
+                "app": "app",
+                "middleware": [
+                    "app/middleware",
+                    "middleware"
+                ],
+                "controllers": [
+                    "app/controllers",
+                    "controllers"
+                ],
+                "composables": [
+                    "app/composables",
+                    "composables"
+                ],
+                "plugins": [
+                    "plugins"
+                ],
+                "public": [
+                    "public"
+                ],
+                "env": []
+            }
+        },
+        "middleware": {},
+        "controllers": {},
+        "composables": {},
+        "workers": {},
+        "workerState": {},
+        "threadWorkers": {},
+        "routes": [
+            {
+                "id": "app/page",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/page.ts",
+                "relativePath": "app/page.ts",
+                "pattern": "/",
+                "methods": {},
+                "middleware": []
+            },
+            {
+                "id": "app/api/echo/route",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/api/echo/route.ts",
+                "relativePath": "app/api/echo/route.ts",
+                "pattern": "/api/echo",
+                "methods": {},
+                "middleware": [
+                    "request-context",
+                    "trace-runtime"
+                ]
+            },
+            {
+                "id": "app/api/health/route",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/api/health/route.ts",
+                "relativePath": "app/api/health/route.ts",
+                "pattern": "/api/health",
+                "methods": {},
+                "middleware": [
+                    "request-context",
+                    "trace-runtime"
+                ]
+            },
+            {
+                "id": "app/blog/[slug]/page",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/blog/[slug]/page.ts",
+                "relativePath": "app/blog/[slug]/page.ts",
+                "pattern": "/blog/:slug",
+                "methods": {},
+                "middleware": []
+            },
+            {
+                "id": "app/boom/page",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/boom/page.ts",
+                "relativePath": "app/boom/page.ts",
+                "pattern": "/boom",
+                "methods": {},
+                "middleware": []
+            },
+            {
+                "id": "app/playground/page",
+                "absolutePath": "/home/shubham/Dev/proworkspace/apps/proworkspace/app/playground/page.ts",
+                "relativePath": "app/playground/page.ts",
+                "pattern": "/playground",
+                "methods": {},
+                "middleware": []
+            }
+        ],
+        "publicFiles": {},
+        "entryModulePath": null
+    },
+    "state": {
+        "requestId": "cc68006f-5e1e-493c-88f7-e2d39a4ef24b",
+        "startedAt": "2026-05-10T14:11:49.680Z",
+        "middleware": [
+            "request-context",
+            "trace-runtime"
+        ]
+    },
+    "env": {
+        "GJS_DEBUG_TOPICS": "JS ERROR;JS LOG",
+        "USER": "shubham",
+        "npm_config_user_agent": "npm/11.11.1 node/v24.14.0 linux x64 workspaces/false",
+        "XDG_SESSION_TYPE": "wayland",
+        "GIT_ASKPASS": "/usr/share/antigravity/resources/app/extensions/git/dist/askpass.sh",
+        "npm_node_execpath": "/home/shubham/.nvm/versions/node/v24.14.0/bin/node",
+        "SHLVL": "1",
+        "npm_config_noproxy": "",
+        "HOME": "/home/shubham",
+        "OLDPWD": "/home/shubham",
+        "CHROME_DESKTOP": "antigravity.desktop",
+        "LESS": "-R",
+        "ANTIGRAVITY_CLI_ALIAS": "agy",
+        "DESKTOP_SESSION": "ubuntu",
+        "NVM_BIN": "/home/shubham/.nvm/versions/node/v24.14.0/bin",
+        "TERM_PROGRAM_VERSION": "1.107.0",
+        "npm_package_json": "/home/shubham/Dev/proworkspace/apps/proworkspace/package.json",
+        "GIO_LAUNCHED_DESKTOP_FILE": "/usr/share/applications/antigravity.desktop",
+        "ZSH": "/home/shubham/.oh-my-zsh",
+        "LSCOLORS": "Gxfxcxdxbxegedabagacad",
+        "NVM_INC": "/home/shubham/.nvm/versions/node/v24.14.0/include/node",
+        "GTK_MODULES": "gail:atk-bridge",
+        "PAGER": "less",
+        "VSCODE_GIT_ASKPASS_MAIN": "/usr/share/antigravity/resources/app/extensions/git/dist/askpass-main.js",
+        "MANAGERPID": "6475",
+        "VSCODE_GIT_ASKPASS_NODE": "/usr/share/antigravity/antigravity",
+        "npm_config_userconfig": "/home/shubham/.npmrc",
+        "npm_config_local_prefix": "/home/shubham/Dev/proworkspace/apps/proworkspace",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "SYSTEMD_EXEC_PID": "6856",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "GIO_LAUNCHED_DESKTOP_FILE_PID": "1746860",
+        "COLORTERM": "truecolor",
+        "COLOR": "1",
+        "NVM_DIR": "/home/shubham/.nvm",
+        "WAYLAND_DISPLAY": "wayland-0",
+        "LOGNAME": "shubham",
+        "VSCODE_PROFILE_INITIALIZED": "1",
+        "_": "/home/shubham/.nvm/versions/node/v24.14.0/bin/npm",
+        "MANAGERPIDFDID": "685",
+        "JOURNAL_STREAM": "10:39140",
+        "npm_config_prefix": "/home/shubham/.nvm/versions/node/v24.14.0",
+        "npm_config_npm_version": "11.11.1",
+        "XDG_SESSION_CLASS": "user",
+        "MEMORY_PRESSURE_WATCH": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/session.slice/org.gnome.Shell@ubuntu.service/memory.pressure",
+        "USER_ZDOTDIR": "/home/shubham",
+        "USERNAME": "shubham",
+        "TERM": "xterm-256color",
+        "npm_config_cache": "/home/shubham/.npm",
+        "GNOME_DESKTOP_SESSION_ID": "this-is-deprecated",
+        "FC_FONTATIONS": "1",
+        "npm_config_node_gyp": "/home/shubham/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+        "PATH": "/home/shubham/Dev/proworkspace/apps/proworkspace/node_modules/.bin:/home/shubham/Dev/proworkspace/apps/node_modules/.bin:/home/shubham/Dev/proworkspace/node_modules/.bin:/home/shubham/Dev/node_modules/.bin:/home/shubham/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/home/shubham/.nvm/versions/node/v24.14.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/home/shubham/.local/bin:/home/shubham/.local/bin:/home/shubham/.nvm/versions/node/v24.14.0/bin:/home/shubham/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/snap/bin:/home/shubham/.lmstudio/bin:/home/shubham/.lmstudio/bin",
+        "INVOCATION_ID": "b1063e68369f4ff9bfb7bdac9c06e077",
+        "NODE": "/home/shubham/.nvm/versions/node/v24.14.0/bin/node",
+        "npm_package_name": "prospace",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "XDG_MENU_PREFIX": "gnome-",
+        "GNOME_SETUP_DISPLAY": "unix:/tmp/.X11-unix/X1",
+        "GDK_BACKEND": "wayland",
+        "DISPLAY": ":0",
+        "LANG": "en_US.UTF-8",
+        "XDG_CURRENT_DESKTOP": "ubuntu:GNOME",
+        "VSCODE_INJECTION": "1",
+        "XDG_SESSION_DESKTOP": "ubuntu",
+        "XMODIFIERS": "@im=ibus",
+        "XAUTHORITY": "/run/user/1000/.mutter-Xwaylandauth.IEIXO3",
+        "SBX_CHROME_API_RQ": "1",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=00:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.avif=01;35:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:*~=00;90:*#=00;90:*.bak=00;90:*.old=00;90:*.orig=00;90:*.part=00;90:*.rej=00;90:*.swp=00;90:*.tmp=00;90:*.dpkg-dist=00;90:*.dpkg-old=00;90:*.ucf-dist=00;90:*.ucf-new=00;90:*.ucf-old=00;90:*.rpmnew=00;90:*.rpmorig=00;90:*.rpmsave=00;90:",
+        "TERM_PROGRAM": "vscode",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-8871ded5f3.sock",
+        "npm_lifecycle_script": "zerux dev -p 3010",
+        "SSH_AUTH_SOCK": "/home/shubham/.ssh/ssh-agent.sock",
+        "SHELL": "/usr/bin/zsh",
+        "npm_package_version": "1.0.0",
+        "npm_lifecycle_event": "dev",
+        "QT_ACCESSIBILITY": "1",
+        "GDMSESSION": "ubuntu",
+        "GPG_AGENT_INFO": "/run/user/1000/gnupg/S.gpg-agent:0:1",
+        "GJS_DEBUG_OUTPUT": "stderr",
+        "QT_IM_MODULE": "ibus",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "npm_config_globalconfig": "/home/shubham/.nvm/versions/node/v24.14.0/etc/npmrc",
+        "npm_config_init_module": "/home/shubham/.npm-init.js",
+        "PWD": "/home/shubham/Dev/proworkspace/apps/proworkspace",
+        "npm_execpath": "/home/shubham/.nvm/versions/node/v24.14.0/lib/node_modules/npm/bin/npm-cli.js",
+        "XDG_DATA_DIRS": "/home/shubham/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share/:/usr/share/:/var/lib/snapd/desktop",
+        "XDG_SESSION_EXTRA_DEVICE_ACCESS": "render:accel",
+        "NVM_CD_FLAGS": "-q",
+        "ZDOTDIR": "/home/shubham",
+        "npm_config_global_prefix": "/home/shubham/.nvm/versions/node/v24.14.0",
+        "npm_command": "run",
+        "QT_IM_MODULES": "wayland;ibus",
+        "MEMORY_PRESSURE_WRITE": "c29tZSAyMDAwMDAgMjAwMDAwMAA=",
+        "INIT_CWD": "/home/shubham/Dev/proworkspace/apps/proworkspace",
+        "EDITOR": "vi"
+    },
+    "services": {
+        "controllers": {
+            "app/controllers/status": {}
+        },
+        "composables": {}
+    }
+}

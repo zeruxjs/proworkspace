@@ -1,0 +1,38 @@
+{
+  "name": "prospace",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "zerux build",
+    "dev": "zerux dev",
+    "start": "zerux start"
+  },
+  "dependencies": {
+    "minio": "^8.0.7",
+    "pg": "^8.20.0",
+    "redis": "^5.12.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "zeruxjs": "*",
+    "@zeruxjs/db": "*",
+    "@zeruxjs/db-pg": "*",
+    "@zeruxjs/typescript": "*",
+    "@zeruxjs/db-sql-core": "*",
+    "@zeruxjs/auth": "*",
+    "zcli": "*",
+    "@zeruxjs/cache": "*",
+    "@zeruxjs/cache-redis": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@types/pg": "^8.20.0"
+  },
+  "workspaces": [
+    "packages/@zeruxjs/*",
+    "packages/*"
+  ]
+}

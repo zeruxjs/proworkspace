@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "Master",
+			"path": "."
+		},
+		{
+			"name": "Zerux",
+			"path": "apps/proworkspace/packages"
+		},
+		{
+			"name": "Proworkspace",
+			"path": "apps/proworkspace"
+		}
+	],
+	"settings": {}
+}
