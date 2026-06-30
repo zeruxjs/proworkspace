@@ -123,6 +123,7 @@ async function generateCoreDns(config: Config) {
     const mainDomain = env("MAIN_DOMAIN", config.domain || "localhost").replace(/\.$/, "");
     const nsLabels = splitCsv(env("NS_DOMAIN", "ns1,ns2"));
     const dnsLabel = env("DNS_DOMAIN", "dns");
+    const httpDomains = managedHttpDomains(config);
     const ips = getPublicIps();
     const serial = Math.floor(Date.now() / 1000);
     const origin = `${mainDomain}.`;
@@ -136,9 +137,19 @@ async function generateCoreDns(config: Config) {
         records.push(`@ IN NS ${labelDomain(label, mainDomain)}.`);
     });
 
-    [...nsLabels, dnsLabel, env("DEV_DOMAIN", "dev")].filter(Boolean).forEach((label) => {
-        ips.ipv4.forEach((ip) => records.push(`${label} IN A ${ip}`));
-        ips.ipv6.forEach((ip) => records.push(`${label} IN AAAA ${ip}`));
+    const managedRecordNames = unique([
+        ...nsLabels.map((label) => labelDomain(label, mainDomain)),
+        ...httpDomains
+    ]);
+
+    managedRecordNames.forEach((fqdn) => {
+        const recordName = fqdn === mainDomain
+            ? "@"
+            : fqdn.endsWith(`.${mainDomain}`)
+                ? fqdn.slice(0, -1 * (`.${mainDomain}`).length)
+                : `${fqdn}.`;
+        ips.ipv4.forEach((ip) => records.push(`${recordName} IN A ${ip}`));
+        ips.ipv6.forEach((ip) => records.push(`${recordName} IN AAAA ${ip}`));
     });
 
     if (ips.ipv4.length === 0 && ips.ipv6.length === 0) {

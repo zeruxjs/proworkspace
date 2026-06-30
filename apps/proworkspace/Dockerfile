@@ -9,6 +9,7 @@ WORKDIR /app
 RUN apk add --no-cache \
     git \
     openssh \
+    openssl \
     gnupg \
     bash \
     curl \
