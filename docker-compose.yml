@@ -5,9 +5,8 @@ services:
     container_name: proworkspace-manager
     restart: unless-stopped
     working_dir: /app
-    command: npm run dev
+    command: npm start
     volumes:
-      - ./apps/manager:/app
       - ./config.json:/config.json
       - ./.env:/app/.env
       - ./generated:/generated
@@ -51,7 +50,6 @@ services:
       MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY}
       PROMETHEUS_URL: http://prometheus:9090
     volumes:
-      - ./apps/proworkspace:/app
       - ./logs/proworkspace:/app/.zerux/log
     command: /start.sh
     ports:
