@@ -20,7 +20,7 @@ RUN npm install
 
 COPY . .
 
-RUN npm run build --workspaces --if-present
+RUN node scripts/build-workspaces.mjs
 RUN node packages/zeruxjs/dist/bin/zerux.js build
 
 # Create cron log directory
