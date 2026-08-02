@@ -11,6 +11,7 @@ type SiteRow = {
 type SiteRegistration = {
     url: string;
     folder: string;
+    routePrefix: string;
     host: string;
     pathname: string;
 };
@@ -32,12 +33,13 @@ const normalizeHost = (host: string) =>
 const normalizeFolder = (folder: string) =>
     folder.trim().replace(/^\/+|\/+$/g, "");
 
-const parseSiteRegistration = (url: string, folder: string): SiteRegistration => {
+const parseSiteRegistration = (url: string, folder: string, routePrefix = ""): SiteRegistration => {
     const parsed = new URL(url.includes("://") ? url : `http://${url}`);
 
     return {
         url,
         folder: normalizeFolder(folder),
+        routePrefix: sanitizePathname(routePrefix),
         host: normalizeHost(parsed.host),
         pathname: sanitizePathname(parsed.pathname)
     };
@@ -58,7 +60,7 @@ const findRegistration = (host: string, pathname: string, registrations: SiteReg
         );
 
 const serviceFolder = (service: string) =>
-    service === "dns" ? "{admin}/dns" : `{${service}}`;
+    service === "dns" ? "{admin}" : `{${service}}`;
 
 const isAccountsPath = (pathname: string) =>
     ["/signin", "/signup", "/forgot-password", "/reset-password"].some((path) => pathname === path || pathname.startsWith(`${path}/`)) ||
@@ -83,11 +85,12 @@ export default (context: ZeruxRequestContext, next: () => Promise<void>) => {
 
         sites.forEach((site) => {
             const url = typeof site.site === "string" ? site.site : "";
-            const folder = typeof site.for === "string" ? serviceFolder(site.for) : "";
+            const service = typeof site.for === "string" ? site.for : "";
+            const folder = service ? serviceFolder(service) : "";
 
             if (site.status === "active" && url && folder) {
                 context.multisiteRegister(url, folder);
-                registrations.push(parseSiteRegistration(url, folder));
+                registrations.push(parseSiteRegistration(url, folder, service === "dns" ? "/dns" : ""));
             }
         });
 
@@ -99,9 +102,10 @@ export default (context: ZeruxRequestContext, next: () => Promise<void>) => {
                 ? context.pathname
                 : context.pathname.slice(match.pathname.length);
             const folderPath = sanitizePathname(`/${match.folder}`);
+            const targetBase = sanitizePathname(`${folderPath}${match.routePrefix === "/" ? "" : match.routePrefix}`);
             const pathname = context.pathname === folderPath || context.pathname.startsWith(`${folderPath}/`)
                 ? context.pathname
-                : sanitizePathname(`${folderPath}${suffix === "/" ? "" : suffix}`);
+                : sanitizePathname(`${targetBase}${suffix === "/" ? "" : suffix}`);
 
             context.state.multisite = {
                 enabled: true,
