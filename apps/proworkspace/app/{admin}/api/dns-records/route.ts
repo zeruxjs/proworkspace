@@ -8,7 +8,8 @@ import {
     normalizeRecordName,
     normalizeRecordType,
     normalizeRecordValue,
-    normalizeTtl
+    normalizeTtl,
+    syncDnsZone
 } from "../../../../lib/dns.ts";
 
 type BodyRecord = Record<string, unknown>;
@@ -30,6 +31,15 @@ const text = (body: BodyRecord, key: string) =>
 
 const jsonError = (message: string, status = 400): never => {
     throw new HttpError(status, message);
+};
+
+const priority = (body: BodyRecord, type: string) => {
+    if (type !== "MX") return null;
+    const value = Number(text(body, "priority") || 10);
+    if (!Number.isInteger(value) || value < 0 || value > 65535) {
+        return jsonError("MX priority must be between 0 and 65535.");
+    }
+    return value;
 };
 
 const orgContext = async () => {
@@ -72,8 +82,10 @@ export const POST = async (context: ZeruxRequestContext) => {
             .replace(/\.$/, "");
         const value = normalizeRecordValue(type, text(body, "value"));
         const ttl = normalizeTtl(text(body, "ttl"));
+        const recordPriority = priority(body, type);
 
-        if (!domain || !/^[a-z0-9.-]+$/.test(domain)) {
+        const mainDomain = (process.env.MAIN_DOMAIN || org.domain).toLowerCase().replace(/\.$/, "");
+        if (!domain || !/^[a-z0-9.-]+$/.test(domain) || (domain !== mainDomain && !domain.endsWith(`.${mainDomain}`))) {
             return jsonError("Enter a valid DNS domain.");
         }
 
@@ -86,11 +98,14 @@ export const POST = async (context: ZeruxRequestContext) => {
                 type,
                 value,
                 ttl,
+                priority: recordPriority,
                 source: "manual",
                 locked: false,
                 status: "active"
             }
         });
+
+        await syncDnsZone(org.orgId, org.domain);
 
         return {
             ok: true
@@ -98,6 +113,41 @@ export const POST = async (context: ZeruxRequestContext) => {
     } catch (caught) {
         if (caught instanceof HttpError) throw caught;
         return jsonError(caught instanceof Error ? caught.message : "Unable to add DNS record.");
+    }
+};
+
+export const PUT = async (context: ZeruxRequestContext) => {
+    try {
+        await requireCapability(context, "admin.access");
+        const org = await orgContext();
+        const body = asBodyObject(context.body);
+        const id = Number(text(body, "id"));
+        const records = await getDnsRecords(org.orgId);
+        const record = records.find((entry) => entry.id === id);
+        if (!record) return jsonError("DNS record was not found.", 404);
+        if (record.locked || record.source === "system") return jsonError("System DNS records cannot be edited.");
+
+        const type = normalizeRecordType(text(body, "type"));
+        const name = normalizeRecordName(text(body, "name"));
+        const value = normalizeRecordValue(type, text(body, "value"));
+        const ttl = normalizeTtl(text(body, "ttl"));
+        const recordPriority = priority(body, type);
+
+        await db.update({
+            table: "dns_records",
+            values: { name, type, value, ttl, priority: recordPriority },
+            where: {
+                and: [
+                    { field: "id", operator: "eq", value: id },
+                    { field: "org_id", operator: "eq", value: org.orgId }
+                ]
+            }
+        });
+        await syncDnsZone(org.orgId, org.domain);
+        return { ok: true };
+    } catch (caught) {
+        if (caught instanceof HttpError) throw caught;
+        return jsonError(caught instanceof Error ? caught.message : "Unable to edit DNS record.");
     }
 };
 
@@ -129,6 +179,8 @@ export const DELETE = async (context: ZeruxRequestContext) => {
                 ]
             }
         });
+
+        await syncDnsZone(org.orgId, org.domain);
 
         return {
             ok: true

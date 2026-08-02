@@ -98,9 +98,11 @@ const secureCookie = (context: ZeruxRequestContext) => {
 
 export const setSessionCookie = (context: ZeruxRequestContext, token: string) => {
     const maxAge = getAuthConfig().session.expiresIn;
+    const mainDomain = (process.env.MAIN_DOMAIN || "").trim().replace(/^\.+|\.+$/g, "");
     const cookie = [
         `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}`,
         "Path=/",
+        mainDomain && mainDomain !== "localhost" ? `Domain=.${mainDomain}` : "",
         "HttpOnly",
         "SameSite=Lax",
         `Max-Age=${maxAge}`,
@@ -111,7 +113,16 @@ export const setSessionCookie = (context: ZeruxRequestContext, token: string) =>
 };
 
 export const clearSessionCookie = (context: ZeruxRequestContext) => {
-    context.res.setHeader("Set-Cookie", `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+    const mainDomain = (process.env.MAIN_DOMAIN || "").trim().replace(/^\.+|\.+$/g, "");
+    const cookie = [
+        `${AUTH_COOKIE_NAME}=`,
+        "Path=/",
+        mainDomain && mainDomain !== "localhost" ? `Domain=.${mainDomain}` : "",
+        "HttpOnly",
+        "SameSite=Lax",
+        "Max-Age=0"
+    ].filter(Boolean).join("; ");
+    context.res.setHeader("Set-Cookie", cookie);
 };
 
 export const getCurrentUser = async (context: ZeruxRequestContext): Promise<CurrentUser | null> => {
@@ -173,7 +184,13 @@ export const requireAdminPage = async (context: ZeruxRequestContext) => {
             ? multisite.originalPathname
             : context.url.pathname;
         const next = encodeURIComponent(publicPathname + context.url.search);
-        return redirect(`/signin?next=${next}`, RedirectType.SeeOther);
+        const mainDomain = (process.env.MAIN_DOMAIN || "").trim().replace(/^\.+|\.+$/g, "");
+        const authLabel = (process.env.AUTH_DOMAIN || "auth").trim().replace(/^\.+|\.+$/g, "");
+        const forwardedProto = String(context.req.headers["x-forwarded-proto"] || "https").split(",")[0]?.trim() || "https";
+        const signInOrigin = mainDomain && mainDomain !== "localhost"
+            ? `${forwardedProto}://${authLabel ? `${authLabel}.` : ""}${mainDomain}`
+            : "";
+        return redirect(`${signInOrigin}/signin?next=${next}`, RedirectType.SeeOther);
     }
 
     if (!hasAnyCapability(user, "admin.access")) {

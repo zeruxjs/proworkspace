@@ -79,8 +79,19 @@ export const normalizeSiteMapping = (value: string) => {
 export const buildDefaultSiteMappings = (mainSite: string) => {
     const normalizedMainSite = normalizeSiteMapping(mainSite);
 
+    const configuredMainDomain = normalizeSiteHost(process.env.MAIN_DOMAIN || "");
+    const baseDomain = configuredMainDomain || normalizedMainSite.split("/")[0] || "";
+    const authLabel = normalizeSiteHost(process.env.AUTH_DOMAIN || "auth");
+    const dnsLabel = normalizeSiteHost(process.env.DNS_DOMAIN || "dns");
+    const authSite = authLabel ? `${authLabel}.${baseDomain}` : baseDomain;
+    const dnsSite = dnsLabel ? `${dnsLabel}.${baseDomain}` : baseDomain;
+
     return SITE_SERVICE_ORDER.map((service) => ({
-        site: service === "accounts" ? normalizedMainSite : `${normalizedMainSite}/${service}`,
+        site: service === "accounts"
+            ? authSite
+            : service === "dns"
+                ? dnsSite
+                : `${normalizedMainSite}/${service}`,
         for: service
     }));
 };

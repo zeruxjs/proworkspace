@@ -1,4 +1,5 @@
 import { db } from "db";
+import fs from "node:fs/promises";
 import { createDnsTables } from "./db.ts";
 
 export type DnsRecordType = "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS";
@@ -95,6 +96,42 @@ export const getDnsRecords = async (orgId: number) => {
     return (Array.isArray(result.rows) ? result.rows : []) as DnsRecordRow[];
 };
 
+const zoneValue = (record: DnsRecordRow) => {
+    if (record.type === "TXT") {
+        return `"${record.value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+    }
+
+    if (["CNAME", "MX", "NS"].includes(record.type)) {
+        return record.value.endsWith(".") ? record.value : `${record.value}.`;
+    }
+
+    return record.value;
+};
+
+export const syncDnsZone = async (orgId: number, domainFallback = "") => {
+    const records = (await getDnsRecords(orgId)).filter((record) => record.status === "active");
+    const mainDomain = normalizeDomain(process.env.MAIN_DOMAIN || domainFallback, domainFallback);
+    const nsLabels = (process.env.NS_DOMAIN || "ns1,ns2").split(",").map((entry) => entry.trim()).filter(Boolean);
+    const serial = Math.floor(Date.now() / 1000);
+    const lines = [
+        `$ORIGIN ${mainDomain}.`,
+        "$TTL 300",
+        `@ IN SOA ${nsLabels[0] || "ns1"}.${mainDomain}. hostmaster.${mainDomain}. (${serial} 300 120 1209600 300)`,
+        ...nsLabels.map((label) => `@ IN NS ${label}.${mainDomain}.`)
+    ];
+
+    records.forEach((record) => {
+        const owner = record.domain === mainDomain
+            ? record.name
+            : `${record.name === "@" ? record.domain : `${record.name}.${record.domain}`}.`;
+        const priority = record.type === "MX" ? `${record.priority ?? 10} ` : "";
+        lines.push(`${owner} ${record.ttl} IN ${record.type} ${priority}${zoneValue(record)}`);
+    });
+
+    const zonePath = process.env.COREDNS_ZONE_PATH || "/generated/coredns/db.zone";
+    await fs.writeFile(zonePath, `${lines.join("\n")}\n`, "utf8");
+};
+
 export const ensureSystemDnsRecords = async (orgId: number, domainFallback: string) => {
     await createDnsTables();
 
@@ -102,7 +139,14 @@ export const ensureSystemDnsRecords = async (orgId: number, domainFallback: stri
     const nsLabels = (process.env.NS_DOMAIN || "ns1,ns2").split(",").map((entry) => entry.trim()).filter(Boolean);
     const ipv4 = (process.env.VPS_IPV4 || "").split(",").map((entry) => entry.trim()).filter(Boolean);
     const ipv6 = (process.env.VPS_IPV6 || "").split(",").map((entry) => entry.trim()).filter(Boolean);
-    const desired = nsLabels.flatMap((name) => [
+    const managedLabels = [...new Set([
+        "@",
+        ...nsLabels,
+        process.env.AUTH_DOMAIN || "auth",
+        process.env.DNS_DOMAIN || "dns",
+        process.env.DEV_DOMAIN || "dev"
+    ].map((entry) => entry.trim()).filter(Boolean))];
+    const desired = managedLabels.flatMap((name) => [
         ...ipv4.map((value) => ({ domain: mainDomain, name, type: "A" as DnsRecordType, value })),
         ...ipv6.map((value) => ({ domain: mainDomain, name, type: "AAAA" as DnsRecordType, value }))
     ]);
@@ -149,4 +193,6 @@ export const ensureSystemDnsRecords = async (orgId: number, domainFallback: stri
             }
         });
     }
+
+    await syncDnsZone(orgId, mainDomain);
 };

@@ -8,9 +8,10 @@ const recordRows = (records: Awaited<ReturnType<typeof getDnsRecords>>) =>
         <td><code>${escapeHtml(record.domain)}</code></td>
         <td>${escapeHtml(record.type)}</td>
         <td><code>${escapeHtml(record.value)}</code></td>
+        <td>${record.type === "MX" ? escapeHtml(record.priority ?? 10) : "—"}</td>
         <td>${escapeHtml(record.ttl)}</td>
         <td><span class="status ${record.locked ? "active" : "reachable"}">${record.locked ? "locked" : "manual"}</span></td>
-        <td>${record.locked ? "" : `<button class="danger-button" type="button" data-dns-delete="${escapeHtml(record.id)}">Delete</button>`}</td>
+        <td>${record.locked ? "" : `<button type="button" data-dns-edit="${escapeHtml(record.id)}" data-name="${escapeHtml(record.name)}" data-type="${escapeHtml(record.type)}" data-value="${escapeHtml(record.value)}" data-priority="${escapeHtml(record.priority ?? 10)}" data-ttl="${escapeHtml(record.ttl)}">Edit</button> <button class="danger-button" type="button" data-dns-delete="${escapeHtml(record.id)}">Delete</button>`}</td>
     </tr>`).join("");
 
 const script = `<script>
@@ -24,11 +25,12 @@ const script = `<script>
         button.disabled = true;
         message.textContent = "";
         try {
+            const payload = Object.fromEntries(new FormData(form).entries());
             const response = await fetch(new URL("api/dns-records", window.location.href).href, {
-                method: "POST",
+                method: payload.id ? "PUT" : "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "same-origin",
-                body: JSON.stringify(Object.fromEntries(new FormData(form).entries()))
+                body: JSON.stringify(payload)
             });
             const result = await response.json().catch(() => ({}));
             if (!response.ok || result.error) throw new Error(result.message || "Unable to add DNS record.");
@@ -40,6 +42,20 @@ const script = `<script>
     });
 
     document.addEventListener("click", async (event) => {
+        const edit = event.target instanceof Element ? event.target.closest("button[data-dns-edit]") : null;
+        if (edit instanceof HTMLButtonElement) {
+            const form = document.getElementById("dns-record-form");
+            if (!(form instanceof HTMLFormElement)) return;
+            form.elements.namedItem("id").value = edit.dataset.dnsEdit || "";
+            form.elements.namedItem("name").value = edit.dataset.name || "";
+            form.elements.namedItem("type").value = edit.dataset.type || "A";
+            form.elements.namedItem("value").value = edit.dataset.value || "";
+            form.elements.namedItem("priority").value = edit.dataset.priority || "10";
+            form.elements.namedItem("ttl").value = edit.dataset.ttl || "300";
+            form.querySelector("button[type='submit']").textContent = "Save record";
+            form.scrollIntoView({ behavior: "smooth", block: "start" });
+            return;
+        }
         const button = event.target instanceof Element ? event.target.closest("button[data-dns-delete]") : null;
         if (!(button instanceof HTMLButtonElement)) return;
         button.disabled = true;
@@ -76,6 +92,7 @@ export default async (context: ZeruxRequestContext) => {
         body: () => `<section class="panel">
             <h2>Add DNS record</h2>
             <form id="dns-record-form" class="site-create-form">
+                <input name="id" type="hidden">
                 <label>
                     <span>Name</span>
                     <input name="name" autocomplete="off" maxlength="190" placeholder="@, www, api" required>
@@ -100,6 +117,10 @@ export default async (context: ZeruxRequestContext) => {
                     <input name="value" autocomplete="off" maxlength="500" required>
                 </label>
                 <label>
+                    <span>MX priority</span>
+                    <input name="priority" type="number" min="0" max="65535" value="10">
+                </label>
+                <label>
                     <span>TTL</span>
                     <input name="ttl" type="number" min="60" max="86400" value="300" required>
                 </label>
@@ -111,7 +132,7 @@ export default async (context: ZeruxRequestContext) => {
             <h2>Records</h2>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Name</th><th>Domain</th><th>Type</th><th>Value</th><th>TTL</th><th>Source</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Domain</th><th>Type</th><th>Value</th><th>Priority</th><th>TTL</th><th>Source</th><th>Action</th></tr></thead>
                     <tbody>${recordRows(records)}</tbody>
                 </table>
             </div>

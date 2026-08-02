@@ -51,6 +51,7 @@ services:
       PROMETHEUS_URL: http://prometheus:9090
     volumes:
       - ./logs/proworkspace:/app/.zerux/log
+      - ./generated/coredns:/generated/coredns
     command: /start.sh
     ports:
       - "${APP_PORT}:3000"
