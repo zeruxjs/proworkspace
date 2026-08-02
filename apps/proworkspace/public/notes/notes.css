@@ -65,6 +65,31 @@ a {
     min-height: 100vh;
 }
 
+.internal-link {
+    display: inline;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    color: var(--accent);
+    background: transparent;
+    font-weight: 650;
+}
+
+.internal-embed {
+    display: block;
+    margin: 12px 0;
+    padding: 12px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface-2);
+}
+
+.relation-section { margin-bottom: 24px; }
+.relation-section h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.relation-link { display: flex; width: 100%; height: auto; margin: 6px 0; padding: 9px 10px; text-align: left; flex-direction: column; align-items: flex-start; }
+.relation-link small { color: var(--muted); font-size: 10px; }
+.property-row { display: grid; grid-template-columns: minmax(90px, .7fr) 1fr; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.tag-chip { display: inline-flex; margin: 3px; padding: 4px 8px; border-radius: 999px; background: var(--surface-2); color: var(--accent); font-size: 12px; }
+
 .spaces-rail {
     display: flex;
     flex-direction: column;

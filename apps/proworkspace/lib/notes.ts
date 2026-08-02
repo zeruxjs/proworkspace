@@ -312,7 +312,9 @@ export const createNode = async (input: {
         returning: ["id", "node_id"]
     });
 
-    return getNodeByPublicId(nodePublicId);
+    const node = await getNodeByPublicId(nodePublicId);
+    if (node?.type === "page") await reindexNode(node);
+    return node;
 };
 
 const getNodeByPk = async (id: number) => {
@@ -339,7 +341,7 @@ export const updateNodeMarkdown = async (node: NodeRow, markdown: string, user: 
     });
 
     const cleanTitle = title?.trim().slice(0, 240);
-    return db.update({
+    await db.update({
         table: "notes_nodes",
         values: {
             ...(cleanTitle ? { title: cleanTitle, slug: slugifyNote(cleanTitle, node.type) } : {}),
@@ -351,7 +353,87 @@ export const updateNodeMarkdown = async (node: NodeRow, markdown: string, user: 
         },
         where: { field: "id", operator: "eq", value: node.id }
     });
+    const updated = await getNodeByPublicId(node.node_id);
+    if (updated) await reindexNode(updated);
+    return updated;
 };
+
+type MarkdownIndex = {
+    links: Array<{ target: string; subpath: string; alias: string; kind: "link" | "embed"; line: number }>;
+    headings: Array<{ heading: string; slug: string; level: number; line: number }>;
+    blocks: Array<{ block_id: string; line: number; content: string }>;
+    properties: Array<{ property_key: string; property_value: string; value_type: string }>;
+    tags: Array<{ tag: string; line: number }>;
+};
+
+export const parseMarkdownIndex = (markdown: string): MarkdownIndex => {
+    const index: MarkdownIndex = { links: [], headings: [], blocks: [], properties: [], tags: [] };
+    const lines = markdown.split(/\r?\n/);
+    let inFence = false;
+    let inFrontmatter = lines[0]?.trim() === "---";
+    for (let lineNumber = 0; lineNumber < lines.length; lineNumber += 1) {
+        const raw = lines[lineNumber];
+        if (lineNumber === 0 && inFrontmatter) continue;
+        if (inFrontmatter) {
+            if (raw.trim() === "---") { inFrontmatter = false; continue; }
+            const property = raw.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+            if (property) {
+                const value = property[2].trim();
+                const valueType = /^(true|false)$/i.test(value) ? "checkbox" : /^-?\d+(\.\d+)?$/.test(value) ? "number" : /^\d{4}-\d{2}-\d{2}/.test(value) ? "date" : value.startsWith("[") ? "list" : "text";
+                index.properties.push({ property_key: property[1], property_value: value, value_type: valueType });
+            }
+            continue;
+        }
+        if (raw.trim().startsWith("```")) { inFence = !inFence; continue; }
+        if (inFence) continue;
+        const heading = raw.match(/^(#{1,6})\s+(.+?)\s*#*$/);
+        if (heading) index.headings.push({ heading: heading[2], slug: slugifyNote(heading[2]), level: heading[1].length, line: lineNumber + 1 });
+        const block = raw.match(/(?:^|\s)\^([A-Za-z0-9-]+)\s*$/);
+        if (block) index.blocks.push({ block_id: block[1], line: lineNumber + 1, content: raw.replace(/\s*\^[A-Za-z0-9-]+\s*$/, "") });
+        for (const match of raw.matchAll(/(!)?\[\[([^\]|#]+)(?:(#[^\]|]+))?(?:\|([^\]]+))?\]\]/g)) {
+            index.links.push({ target: match[2].trim(), subpath: (match[3] ?? "").replace(/^#/, ""), alias: (match[4] ?? "").trim(), kind: match[1] ? "embed" : "link", line: lineNumber + 1 });
+        }
+        const withoutLinks = raw.replace(/!?\[\[[^\]]+\]\]/g, "").replace(/`[^`]*`/g, "");
+        for (const match of withoutLinks.matchAll(/(^|\s)#([\p{L}\p{N}_/-]+)/gu)) index.tags.push({ tag: match[2], line: lineNumber + 1 });
+    }
+    return index;
+};
+
+export const reindexNode = async (node: NodeRow) => {
+    const parsed = parseMarkdownIndex(node.markdown);
+    for (const table of ["notes_links", "notes_headings", "notes_blocks", "notes_properties", "notes_tags"]) {
+        await db.delete({ table, where: { field: table === "notes_links" ? "source_node_id" : "node_id", operator: "eq", value: node.id } });
+    }
+    const allNodes = await listNodes(node.space_id);
+    const resolve = (target: string) => allNodes.find((candidate) => candidate.type === "page" && (candidate.path.toLowerCase() === target.toLowerCase() || candidate.title.toLowerCase() === target.toLowerCase() || candidate.slug.toLowerCase() === target.toLowerCase()));
+    if (parsed.links.length) await db.insert({ table: "notes_links", values: parsed.links.map((link) => ({ ...link, space_id: node.space_id, source_node_id: node.id, target_node_id: resolve(link.target)?.id ?? null })) });
+    if (parsed.headings.length) await db.insert({ table: "notes_headings", values: parsed.headings.map((heading) => ({ ...heading, node_id: node.id })) });
+    if (parsed.blocks.length) await db.insert({ table: "notes_blocks", values: parsed.blocks.map((block) => ({ ...block, node_id: node.id })) });
+    if (parsed.properties.length) await db.insert({ table: "notes_properties", values: parsed.properties.map((property) => ({ ...property, node_id: node.id })) });
+    if (parsed.tags.length) await db.insert({ table: "notes_tags", values: [...new Map(parsed.tags.map((tag) => [tag.tag.toLowerCase(), tag])).values()].map((tag) => ({ ...tag, space_id: node.space_id, node_id: node.id })) });
+};
+
+export const getNodeRelations = async (node: NodeRow) => {
+    const [outgoing, incoming, headings, blocks, properties, tags] = await Promise.all([
+        db.select({ table: "notes_links", columns: ["id", "target_node_id", "target", "subpath", "alias", "kind", "line"], where: { field: "source_node_id", operator: "eq", value: node.id } }),
+        db.select({ table: "notes_links", columns: ["id", "source_node_id", "target", "subpath", "alias", "kind", "line"], where: { field: "target_node_id", operator: "eq", value: node.id } }),
+        db.select({ table: "notes_headings", columns: ["heading", "slug", "level", "line"], where: { field: "node_id", operator: "eq", value: node.id } }),
+        db.select({ table: "notes_blocks", columns: ["block_id", "line", "content"], where: { field: "node_id", operator: "eq", value: node.id } }),
+        db.select({ table: "notes_properties", columns: ["property_key", "property_value", "value_type"], where: { field: "node_id", operator: "eq", value: node.id } }),
+        db.select({ table: "notes_tags", columns: ["tag", "line"], where: { field: "node_id", operator: "eq", value: node.id } })
+    ]);
+    const nodes = await listNodes(node.space_id);
+    const byPk = new Map(nodes.map((item) => [item.id, item]));
+    return { outgoing: rowsOf(outgoing.rows), backlinks: rowsOf<Record<string, unknown>>(incoming.rows).map((link) => ({ ...link, source: byPk.get(Number(link.source_node_id)) ?? null })), headings: rowsOf(headings.rows), blocks: rowsOf(blocks.rows), properties: rowsOf(properties.rows), tags: rowsOf(tags.rows) };
+};
+
+export const getSpaceGraph = async (spacePk: number) => {
+    const nodes = await listNodes(spacePk);
+    const links = await db.select({ table: "notes_links", columns: ["source_node_id", "target_node_id", "target", "kind"], where: { field: "space_id", operator: "eq", value: spacePk } });
+    return { nodes: nodes.filter((node) => node.type === "page").map(({ id, node_id, title, path }) => ({ id, node_id, title, path })), edges: rowsOf(links.rows) };
+};
+
+export const listNodeRevisions = async (nodePk: number) => rowsOf((await db.select({ table: "notes_revisions", columns: ["id", "revision_id", "summary", "created_by", "created_at"], where: { field: "node_id", operator: "eq", value: nodePk }, orderBy: [{ by: "created_at", direction: "desc" }], limit: 100 })).rows);
 
 export const listLabels = async (orgId: number) => {
     const result = await db.select({

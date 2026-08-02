@@ -11,6 +11,10 @@
     const tree = document.querySelector("[data-tree]");
     const shareList = document.querySelector("[data-share-list]");
     const commentsList = document.querySelector("[data-comments-list]");
+    const backlinks = document.querySelector("[data-backlinks]");
+    const outgoing = document.querySelector("[data-outgoing]");
+    const properties = document.querySelector("[data-properties]");
+    const indexedTags = document.querySelector("[data-indexed-tags]");
     const searchResults = document.querySelector("[data-search-results]");
     const spaceModal = document.querySelector("[data-space-modal]");
     const spaceForm = document.querySelector("[data-space-form]");
@@ -56,6 +60,8 @@
 
     function inlineMarkdown(value) {
         return escapeHtml(value)
+            .replace(/!\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_all, target, alias) => `<span class="internal-embed">Embedded: ${alias || target}</span>`)
+            .replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_all, target, alias) => `<button type="button" class="internal-link" data-wikilink="${target}">${alias || target}</button>`)
             .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
             .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
             .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -304,6 +310,7 @@
         renderTree();
         updatePreview();
         loadComments().catch(() => {});
+        loadRelations().catch(() => {});
     }
 
     function scheduleSave() {
@@ -434,6 +441,22 @@
         commentsList.innerHTML = comments.length
             ? comments.map((comment) => `<div class="share-row"><strong>Comment</strong><span>${escapeHtml(comment.body_markdown)}</span></div>`).join("")
             : "<p>No comments yet.</p>";
+    }
+
+    async function loadRelations() {
+        const node = activeNode();
+        if (!node?.node_id || node.node_id.includes("_demo")) return;
+        const result = await apiGet({ action: "relations", nodeId: node.node_id });
+        const relations = result.relations || {};
+        const linkButton = (link, inbound = false) => {
+            const linked = inbound ? link.source : nodes.find((item) => item.id === link.target_node_id);
+            const label = linked?.title || link.alias || link.target || "Unresolved note";
+            return `<button class="relation-link" type="button" ${linked?.node_id ? `data-node-id="${escapeHtml(linked.node_id)}"` : "disabled"}>${escapeHtml(label)}<small>${escapeHtml(link.kind || "link")} · line ${Number(link.line || 0)}</small></button>`;
+        };
+        if (backlinks) backlinks.innerHTML = relations.backlinks?.length ? relations.backlinks.map((link) => linkButton(link, true)).join("") : "<p>No backlinks yet.</p>";
+        if (outgoing) outgoing.innerHTML = relations.outgoing?.length ? relations.outgoing.map((link) => linkButton(link)).join("") : "<p>No outgoing links.</p>";
+        if (properties) properties.innerHTML = relations.properties?.length ? relations.properties.map((item) => `<div class="property-row"><strong>${escapeHtml(item.property_key)}</strong><span>${escapeHtml(item.property_value)}</span></div>`).join("") : "<p>Add YAML properties at the top of the note.</p>";
+        if (indexedTags) indexedTags.innerHTML = relations.tags?.length ? relations.tags.map((item) => `<span class="tag-chip">#${escapeHtml(item.tag)}</span>`).join("") : "<p>No tags.</p>";
     }
 
     function renderShares() {
@@ -700,6 +723,10 @@
             activeNodeId = target.dataset.nodeId;
             dirty = false;
             renderNode();
+        } else if (target.matches("[data-wikilink]")) {
+            const wanted = (target.dataset.wikilink || "").toLowerCase();
+            const linked = nodes.find((node) => node.type === "page" && [node.title, node.path, node.slug].some((value) => String(value || "").toLowerCase() === wanted));
+            if (linked) { activeNodeId = linked.node_id; dirty = false; renderNode(); }
         } else if (target.matches("[data-action='toggle-sidebar']")) {
             document.body.classList.toggle("sidebar-open");
             document.body.classList.toggle("sidebar-collapsed");
@@ -709,6 +736,15 @@
             openPanel(target.dataset.panel || "share");
         } else if (target.matches("[data-action='new-space']")) {
             spaceModal?.showModal();
+        } else if (target.matches("[data-action='daily-note']")) {
+            const date = new Date().toLocaleDateString("en-CA");
+            const existing = nodes.find((node) => node.type === "page" && node.title === date);
+            if (existing) { activeNodeId = existing.node_id; renderNode(); }
+            else {
+                await createNode("page");
+                const created = activeNode();
+                if (created) { created.title = date; created.markdown = `---\ndate: ${date}\ntags: [daily]\n---\n\n# ${date}\n\n## Tasks\n\n- [ ] `; if (titleInput) titleInput.value = date; if (markdownSource) markdownSource.value = created.markdown; if (editor) editor.innerHTML = markdownToHtml(created.markdown); scheduleSave(); }
+            }
         } else if (target.matches("[data-action='close-space-modal']")) {
             spaceModal?.close();
         } else if (target.matches("[data-action='new-page']")) {

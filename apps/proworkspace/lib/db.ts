@@ -589,6 +589,74 @@ export const createNotesTables = async () => {
             { name: "created_at", type: "timestamp", notNull: true, default: { kind: "function", name: "CURRENT_TIMESTAMP" } }
         ]
     });
+
+    // Markdown is the source of truth. These tables are disposable indexes rebuilt
+    // from it, giving a database-backed vault Obsidian-style links and discovery.
+    await db.createTable({
+        table: "notes_links",
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "space_id", type: "integer", notNull: true, foreign: { table: "notes_spaces", column: "id", onDelete: "cascade" } },
+            { name: "source_node_id", type: "integer", notNull: true, foreign: { table: "notes_nodes", column: "id", onDelete: "cascade" } },
+            { name: "target_node_id", type: "integer", foreign: { table: "notes_nodes", column: "id", onDelete: "setNull" } },
+            { name: "target", type: "text", notNull: true },
+            { name: "subpath", type: "text" },
+            { name: "alias", type: "text" },
+            { name: "kind", type: "varchar", length: 30, notNull: true, default: "link" },
+            { name: "line", type: "integer", notNull: true, default: 0 },
+            { name: "created_at", type: "timestamp", notNull: true, default: { kind: "function", name: "CURRENT_TIMESTAMP" } }
+        ]
+    });
+
+    await db.createTable({
+        table: "notes_headings",
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "node_id", type: "integer", notNull: true, foreign: { table: "notes_nodes", column: "id", onDelete: "cascade" } },
+            { name: "heading", type: "text", notNull: true },
+            { name: "slug", type: "text", notNull: true },
+            { name: "level", type: "integer", notNull: true },
+            { name: "line", type: "integer", notNull: true }
+        ]
+    });
+
+    await db.createTable({
+        table: "notes_blocks",
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "node_id", type: "integer", notNull: true, foreign: { table: "notes_nodes", column: "id", onDelete: "cascade" } },
+            { name: "block_id", type: "varchar", length: 190, notNull: true },
+            { name: "line", type: "integer", notNull: true },
+            { name: "content", type: "text", notNull: true }
+        ]
+    });
+
+    await db.createTable({
+        table: "notes_properties",
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "node_id", type: "integer", notNull: true, foreign: { table: "notes_nodes", column: "id", onDelete: "cascade" } },
+            { name: "property_key", type: "varchar", length: 190, notNull: true },
+            { name: "property_value", type: "text", notNull: true },
+            { name: "value_type", type: "varchar", length: 40, notNull: true, default: "text" }
+        ]
+    });
+
+    await db.createTable({
+        table: "notes_tags",
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "space_id", type: "integer", notNull: true, foreign: { table: "notes_spaces", column: "id", onDelete: "cascade" } },
+            { name: "node_id", type: "integer", notNull: true, foreign: { table: "notes_nodes", column: "id", onDelete: "cascade" } },
+            { name: "tag", type: "varchar", length: 240, notNull: true },
+            { name: "line", type: "integer", notNull: true, default: 0 }
+        ]
+    });
 };
 
 export const createInstalledSite = async (input: CreateSiteInput) => {

@@ -150,18 +150,20 @@ const renderNotesPage = async (context: ZeruxRequestContext) => {
         <aside class="notes-sidebar">
             <div class="sidebar-header">
                 <div>
-                    <p>Space</p>
+                    <p>Vault</p>
                     <h1>${escapeHtml(activeSpace.name)}</h1>
                 </div>
-                <button class="icon-button" type="button" data-panel="space" aria-label="Space settings">S</button>
+                <button class="icon-button" type="button" data-panel="space" aria-label="Vault settings">⚙</button>
             </div>
             <div class="quick-actions">
-                <button type="button" data-action="new-page">New page</button>
+                <button type="button" data-action="new-page">New note</button>
                 <button type="button" data-action="new-folder">New folder</button>
+                <button type="button" data-action="daily-note">Today</button>
+                <button type="button" data-panel="links">Backlinks</button>
             </div>
             <label class="search-box">
                 <span>Search</span>
-                <input data-search placeholder="Find pages, folders, comments">
+                <input data-search placeholder="Search this vault…">
             </label>
             <div class="search-results" data-search-results></div>
             <nav class="tree" data-tree aria-label="Pages and folders">
@@ -187,6 +189,7 @@ const renderNotesPage = async (context: ZeruxRequestContext) => {
                 <div class="top-actions">
                     <span class="save-state" data-save-state>Saved</span>
                     <button type="button" data-action="toggle-mode">Markdown</button>
+                    <button type="button" data-panel="links">Links</button>
                     <button type="button" data-panel="comments">Comments</button>
                     <button type="button" data-panel="share">Share</button>
                     <button type="button" data-panel="settings">Settings</button>
@@ -289,6 +292,24 @@ const renderNotesPage = async (context: ZeruxRequestContext) => {
                 <button class="primary" type="button" data-action="comment">Add comment</button>
                 <div data-comments-list></div>
             </div>
+            <div class="panel-view hidden" data-view-panel="links">
+                <section class="relation-section">
+                    <h3>Backlinks</h3>
+                    <div data-backlinks><p>Loading linked mentions…</p></div>
+                </section>
+                <section class="relation-section">
+                    <h3>Outgoing links</h3>
+                    <div data-outgoing></div>
+                </section>
+                <section class="relation-section">
+                    <h3>Properties</h3>
+                    <div data-properties></div>
+                </section>
+                <section class="relation-section">
+                    <h3>Tags</h3>
+                    <div data-indexed-tags></div>
+                </section>
+            </div>
             <div class="panel-view hidden" data-view-panel="settings">
                 <label class="field">
                     <span>Tags</span>
@@ -338,7 +359,7 @@ const renderNotesPage = async (context: ZeruxRequestContext) => {
         <dialog class="modal" data-space-modal>
             <form method="dialog" class="modal-card" data-space-form>
                 <header>
-                    <h2>Create space</h2>
+                    <h2>Create vault</h2>
                     <button class="icon-button" type="button" data-action="close-space-modal" aria-label="Close">x</button>
                 </header>
                 <label class="field">

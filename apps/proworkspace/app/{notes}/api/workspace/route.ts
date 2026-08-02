@@ -7,13 +7,16 @@ import {
     createShare,
     createSpace,
     getNodeByPublicId,
+    getNodeRelations,
     getNotesContext,
+    getSpaceGraph,
     getSpaceByPublicId,
     inviteToSpace,
     linkLabel,
     listComments,
     listLabels,
     listNodes,
+    listNodeRevisions,
     listShares,
     listSpaces,
     revokeShare,
@@ -103,6 +106,19 @@ export const GET = async (context: ZeruxRequestContext) => {
                 ok: true,
                 comments: await listComments(node.id)
             };
+        }
+
+        if (action === "relations" || action === "revisions") {
+            const node = context.query.get("nodeId") ? await getNodeByPublicId(context.query.get("nodeId") ?? "") : null;
+            if (!node) return error("Note not found.", 404);
+            return action === "relations"
+                ? { ok: true, relations: await getNodeRelations(node) }
+                : { ok: true, revisions: await listNodeRevisions(node.id) };
+        }
+
+        if (action === "graph") {
+            if (!space) return error("Vault not found.", 404);
+            return { ok: true, graph: await getSpaceGraph(space.id) };
         }
 
         if (!space) {
