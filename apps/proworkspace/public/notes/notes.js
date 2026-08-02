@@ -1,6 +1,6 @@
 (() => {
   const boot = window.__NOTES__ || {};
-  const state = { user: boot.user, vaults: boot.vaults || [], vault: boot.vault, notes: boot.notes || [], activeId: null, dirty: false, preview: true, rightTab: "backlinks", relations: null };
+  const state = { user: boot.user, vaults: boot.vaults || [], vault: boot.vault, notes: boot.notes || [], activeId: null, selectedFolderId: null, dirty: false, preview: true, rightTab: "backlinks", relations: null };
   const $ = (selector) => document.querySelector(selector);
   const els = { empty: $("[data-empty]"), shell: $("[data-editor-shell]"), tree: $("[data-tree]"), title: $("[data-title]"), markdown: $("[data-markdown]"), preview: $("[data-preview]"), save: $("[data-save]"), vaultName: $("[data-vault-name]"), count: $("[data-count]"), sync: $("[data-sync]"), tabTitle: $("[data-tab-title]"), crumbs: $("[data-breadcrumbs]"), properties: $("[data-properties]"), words: $("[data-words]"), right: $("[data-right]"), rightContent: $("[data-right-content]"), search: $("[data-search]"), vaultDialog: $("[data-vault-dialog]"), vaultList: $("[data-vault-list]"), menu: $("[data-menu]"), toast: $("[data-toast]"), signin: $("[data-signin]") };
   let saveTimer = 0; let searchTimer = 0;
@@ -47,7 +47,7 @@
 
   function visibleNotes() { return state.notes.filter((note) => !note.deleted_at); }
   function treeBranch(parentId = null, depth = 0) {
-    return visibleNotes().filter((note) => (note.parent_id ?? null) === parentId).sort((a, b) => a.type === b.type ? a.title.localeCompare(b.title) : a.type === "folder" ? -1 : 1).map((note) => `<div class="tree-row ${note.node_id === state.activeId ? "active" : ""}" style="--depth:${depth}" data-note-id="${esc(note.node_id)}"><span class="tree-icon">${note.type === "folder" ? "▸" : "◇"}</span><span>${esc(note.title)}</span>${note.type === "page" ? "" : `<button data-parent-id="${note.id}" title="New note inside">＋</button>`}</div>${note.type === "folder" ? treeBranch(note.id, depth + 1) : ""}`).join("");
+    return visibleNotes().filter((note) => (note.parent_id ?? null) === parentId).sort((a, b) => a.type === b.type ? a.title.localeCompare(b.title) : a.type === "folder" ? -1 : 1).map((note) => `<div class="tree-row ${note.node_id === state.activeId || note.id === state.selectedFolderId ? "active" : ""}" style="--depth:${depth}" data-note-id="${esc(note.node_id)}"><span class="tree-icon">${note.type === "folder" ? "▾" : "◇"}</span><span>${esc(note.title)}</span>${note.type === "page" ? "" : `<span class="tree-create"><button data-new-in="page" data-parent-id="${note.id}" title="New note inside">＋</button><button data-new-in="folder" data-parent-id="${note.id}" title="New subfolder inside">▱</button></span>`}</div>${note.type === "folder" ? treeBranch(note.id, depth + 1) : ""}`).join("");
   }
   function renderTree(notes = visibleNotes()) {
     if (notes !== state.notes && notes.length !== visibleNotes().length) els.tree.innerHTML = notes.map((note) => `<div class="tree-row search-result" data-note-id="${esc(note.node_id)}"><span class="tree-icon">⌕</span><span><strong>${esc(note.title)}</strong><small>${esc(note.path)}</small></span></div>`).join("") || '<div class="tree-message">No matching notes</div>';
@@ -59,7 +59,7 @@
     return markdown.slice(4, end).split("\n").map((line) => line.match(/^([\w-]+):\s*(.*)$/)).filter(Boolean).map((match) => ({ key: match[1], value: match[2] }));
   }
   function renderNote(note) {
-    state.activeId = note?.node_id || null; state.dirty = false; els.empty.hidden = Boolean(note); els.shell.hidden = !note;
+    state.activeId = note?.node_id || null; if (note) state.selectedFolderId = note.parent_id ?? null; state.dirty = false; els.empty.hidden = Boolean(note); els.shell.hidden = !note;
     if (!note) { renderTree(); return; }
     els.title.value = note.title; els.markdown.value = note.markdown || ""; els.preview.innerHTML = renderMarkdown(note.markdown); els.tabTitle.textContent = note.title; els.save.textContent = "Saved";
     const parts = note.path.split("/"); els.crumbs.innerHTML = `<span>${esc(state.vault.name)}</span>${parts.map((part) => `<i>/</i><span>${esc(part)}</span>`).join("")}`;
@@ -81,7 +81,7 @@
   }
   function changed() { const note = active(); if (!note) return; note.title = els.title.value; note.markdown = els.markdown.value; state.dirty = true; els.save.textContent = "Unsaved"; els.preview.innerHTML = renderMarkdown(note.markdown); els.tabTitle.textContent = note.title || "Untitled"; const words = (note.markdown.match(/\b[\p{L}\p{N}'’-]+\b/gu) || []).length; els.words.textContent = `${words} words`; clearTimeout(saveTimer); saveTimer = setTimeout(save, 700); }
 
-  async function createItem(type, parentId = null) {
+  async function createItem(type, parentId = state.selectedFolderId) {
     if (!state.vault) return openVaultDialog(true); const title = type === "folder" ? "New folder" : "Untitled";
     try { const result = await post(type === "folder" ? "create-folder" : "create-note", { title, markdown: type === "page" ? "# Untitled\n\n" : "", parentId }); state.notes.push(result.note); renderTree(); if (type === "page") { renderNote(result.note); els.title.select(); } }
     catch (error) { notify(error.message); }
@@ -102,8 +102,8 @@
 
   document.addEventListener("click", async (event) => {
     const target = event.target.closest("button, a"); if (!target) return;
-    if (target.dataset.noteId) { await save(); const note = state.notes.find((item) => item.node_id === target.dataset.noteId); if (note?.type === "page") renderNote(note); return; }
-    if (target.dataset.parentId) { event.stopPropagation(); return createItem("page", Number(target.dataset.parentId)); }
+    if (target.dataset.newIn && target.dataset.parentId) { event.stopPropagation(); return createItem(target.dataset.newIn, Number(target.dataset.parentId)); }
+    if (target.dataset.noteId) { await save(); const note = state.notes.find((item) => item.node_id === target.dataset.noteId); if (note?.type === "page") renderNote(note); else if (note?.type === "folder") { state.selectedFolderId = note.id; state.activeId = null; renderTree(); notify(`Creating inside ${note.title}`); } return; }
     if (target.dataset.wikilink) { const wanted = target.dataset.wikilink.toLowerCase(); const note = state.notes.find((item) => item.type === "page" && [item.title, item.path, item.slug].some((value) => String(value).toLowerCase() === wanted)); if (note) renderNote(note); else if (confirm(`Create “${target.dataset.wikilink}”?`)) { const result = await post("create-note", { title: target.dataset.wikilink, markdown: `# ${target.dataset.wikilink}\n\n` }); state.notes.push(result.note); renderNote(result.note); } return; }
     if (target.dataset.vaultId) { els.vaultDialog.close(); await save(); return refresh(target.dataset.vaultId); }
     const command = target.dataset.command;
