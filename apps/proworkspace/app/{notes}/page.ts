@@ -15,7 +15,7 @@ export default async function NotesPage(context: ZeruxRequestContext) {
     const mainDomain = (process.env.MAIN_DOMAIN || "sh6.in").replace(/^\.+|\.+$/g, "");
     const accountUrl = mainDomain === "localhost" ? "/signin" : `https://accounts.${mainDomain}/signin?next=${encodeURIComponent(`https://notes.${mainDomain}/`)}`;
     return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notes · ProWorkspace</title><meta name="theme-color" content="#17141f"><link rel="stylesheet" href="/notes/notes.css?v=20260802"><script>window.__NOTES__=${json({ ...initial, api, accountUrl })}</script><script defer src="/notes/notes.js?v=20260802"></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notes · ProWorkspace</title><meta name="theme-color" content="#17141f"><link rel="stylesheet" href="/notes/notes.css?v=20260802-2"><script>window.__NOTES__=${json({ ...initial, api, accountUrl })}</script><script defer src="/notes/notes.js?v=20260802-2"></script></head>
 <body>
 <div class="app" data-app>
   <aside class="activity-bar">
