@@ -59,7 +59,7 @@ const signInForm = (context: ZeruxRequestContext, message = "") => {
             <button class="primary" type="submit">Sign in</button>
         </form>
         ${message ? `<p class="message error">${escapeHtml(message)}</p>` : ""}
-        <p style="margin-top:16px"><a href="/signup">Create an account</a></p>
+        <p style="margin-top:16px"><a href="/signup">Create an account</a> · <a href="/forgot-password">Forgot password?</a></p>
     </section>`);
 };
 

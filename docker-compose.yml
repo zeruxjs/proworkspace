@@ -35,6 +35,9 @@ services:
       VPS_IPV4: ${VPS_IPV4}
       VPS_IPV6: ${VPS_IPV6}
       COREDNS_ZONE_PATH: /generated/coredns/db.zone
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      AUTH_FROM_EMAIL: ${AUTH_FROM_EMAIL:-}
+      AUTH_RESET_TTL_MINUTES: ${AUTH_RESET_TTL_MINUTES:-30}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DB_HOST: postgres
       DB_USER: ${POSTGRES_USER}

@@ -142,9 +142,10 @@ export const ensureSystemDnsRecords = async (orgId: number, domainFallback: stri
     const managedLabels = [...new Set([
         "@",
         ...nsLabels,
-        process.env.AUTH_DOMAIN || "auth",
+        process.env.AUTH_DOMAIN || "accounts",
         process.env.DNS_DOMAIN || "dns",
-        process.env.DEV_DOMAIN || "dev"
+        process.env.DEV_DOMAIN || "dev",
+        "admin", "mail", "chat", "drive", "forms", "notes", "office", "ai", "passwords", "git", "tools"
     ].map((entry) => entry.trim()).filter(Boolean))];
     const desired = managedLabels.flatMap((name) => [
         ...ipv4.map((value) => ({ domain: mainDomain, name, type: "A" as DnsRecordType, value })),

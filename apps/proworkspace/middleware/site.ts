@@ -1,4 +1,5 @@
 import type { ZeruxRequestContext } from "zeruxjs";
+import { RedirectType, redirect } from "zeruxjs/navigation";
 import { siteActiveResponse } from "../lib/site-active.ts";
 
 type SiteRow = {
@@ -56,6 +57,13 @@ const findRegistration = (host: string, pathname: string, registrations: SiteReg
             matchesPath(registration.pathname, pathname)
         );
 
+const serviceFolder = (service: string) =>
+    service === "dns" ? "{admin}/dns" : `{${service}}`;
+
+const isAccountsPath = (pathname: string) =>
+    ["/signin", "/signup", "/forgot-password", "/reset-password"].some((path) => pathname === path || pathname.startsWith(`${path}/`)) ||
+    pathname === "/api/auth" || pathname.startsWith("/api/auth/");
+
 export default (context: ZeruxRequestContext, next: () => Promise<void>) => {
     if (context.state.site === 'installer') {
         if (context.pathname !== "/installer" && !context.pathname.startsWith("/installer/")) {
@@ -65,9 +73,17 @@ export default (context: ZeruxRequestContext, next: () => Promise<void>) => {
         const sites = Array.isArray(context.state.sites) ? context.state.sites as SiteRow[] : [];
         const registrations: SiteRegistration[] = [];
 
+        const accountsSite = sites.find((site) => site.for === "accounts" && site.status === "active");
+        const accountsHost = typeof accountsSite?.site === "string" ? accountsSite.site.split("/")[0] : "";
+        const requestHost = Array.isArray(context.req.headers.host) ? context.req.headers.host[0] ?? "" : context.req.headers.host ?? "";
+        if (accountsHost && normalizeHost(requestHost) !== normalizeHost(accountsHost) && isAccountsPath(context.pathname)) {
+            const proto = String(context.req.headers["x-forwarded-proto"] || "https").split(",")[0]?.trim() || "https";
+            return redirect(`${proto}://${accountsHost}${context.pathname}${context.url.search}`, RedirectType.Temporary);
+        }
+
         sites.forEach((site) => {
             const url = typeof site.site === "string" ? site.site : "";
-            const folder = typeof site.for === "string" ? `{${site.for}}` : "";
+            const folder = typeof site.for === "string" ? serviceFolder(site.for) : "";
 
             if (site.status === "active" && url && folder) {
                 context.multisiteRegister(url, folder);
@@ -75,9 +91,7 @@ export default (context: ZeruxRequestContext, next: () => Promise<void>) => {
             }
         });
 
-        const host = Array.isArray(context.req.headers.host)
-            ? context.req.headers.host[0] ?? ""
-            : context.req.headers.host ?? "";
+        const host = requestHost;
         const match = findRegistration(host, context.pathname, registrations);
 
         if (match) {

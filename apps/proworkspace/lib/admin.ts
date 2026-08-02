@@ -353,12 +353,12 @@ export const renderAdminPage = async (context: ZeruxRequestContext, options: Ren
     const profile = renderUserHeaderProfile({
         user: currentUser,
         links: [
-            { label: "Notes", href: "/notes" },
-            { label: "Git", href: "/git" },
-            { label: "Mail", href: "/mail" },
-            { label: "Drive", href: "/drive" },
+            ...(["notes", "git", "mail", "drive"] as SiteService[]).flatMap((service) => {
+                const site = model.sites.find((entry) => entry.for === service);
+                return site ? [{ label: serviceLabel(service), href: serviceHref(model, site) }] : [];
+            }),
             { label: "Admin", href: routeHref(model.basePath, ""), capability: "admin.access" },
-            { label: "Account", href: "/" }
+            ...model.sites.filter((entry) => entry.for === "accounts").slice(0, 1).map((site) => ({ label: "Account", href: serviceHref(model, site) }))
         ]
     });
 

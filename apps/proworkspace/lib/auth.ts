@@ -15,6 +15,7 @@ import {
 
 export const AUTH_COOKIE_NAME = "proworkspace_session";
 const SIGNUP_TEMP_TABLE = "auth_signup_attempts";
+const PASSWORD_RESET_TABLE = "auth_password_resets";
 
 const escapeHtml = (value: unknown) =>
     String(value ?? "")
@@ -184,7 +185,7 @@ export const requireAdminPage = async (context: ZeruxRequestContext) => {
             ? multisite.originalPathname
             : context.url.pathname;
         const mainDomain = (process.env.MAIN_DOMAIN || "").trim().replace(/^\.+|\.+$/g, "");
-        const authLabel = (process.env.AUTH_DOMAIN || "auth").trim().replace(/^\.+|\.+$/g, "");
+        const authLabel = (process.env.AUTH_DOMAIN || "accounts").trim().replace(/^\.+|\.+$/g, "");
         const forwardedProto = String(context.req.headers["x-forwarded-proto"] || "https").split(",")[0]?.trim() || "https";
         const forwardedHost = String(context.req.headers["x-forwarded-host"] || context.req.headers.host || "").split(",")[0]?.trim() || "";
         const returnUrl = forwardedHost
@@ -221,6 +222,84 @@ export const ensureAuthTables = async () => {
             { name: "created_at", type: "timestamp", notNull: true, default: { kind: "function", name: "CURRENT_TIMESTAMP" } }
         ]
     });
+
+    await db.createTable({
+        table: PASSWORD_RESET_TABLE,
+        ifNotExists: true,
+        columns: [
+            { name: "id", type: "integer", primary: true, autoIncrement: true },
+            { name: "user_id", type: "integer", notNull: true, foreign: { table: "users", column: "id", onDelete: "cascade" } },
+            { name: "token_hash", type: "varchar", length: 64, notNull: true, unique: true },
+            { name: "expires_at", type: "timestamp", notNull: true },
+            { name: "used_at", type: "timestamp" },
+            { name: "created_at", type: "timestamp", notNull: true, default: { kind: "function", name: "CURRENT_TIMESTAMP" } }
+        ]
+    });
+};
+
+const tokenHash = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+
+const passwordHash = (password: string) => {
+    const salt = crypto.randomBytes(16).toString("hex");
+    return `scrypt:${salt}:${crypto.scryptSync(password, salt, 64).toString("hex")}`;
+};
+
+export const requestPasswordReset = async (email: string) => {
+    await ensureAuthTables();
+    const result = await db.select({
+        table: "users",
+        columns: ["id", "email"],
+        where: { and: [
+            { field: "email", operator: "eq", value: normalizeEmail(email) },
+            { field: "status", operator: "eq", value: "active" }
+        ] },
+        limit: 1
+    });
+    const user = Array.isArray(result.rows) ? result.rows[0] as { id?: unknown; email?: unknown } | undefined : undefined;
+    if (!user || !Number.isFinite(Number(user.id)) || typeof user.email !== "string") return;
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const ttlMinutes = Math.max(5, Number(process.env.AUTH_RESET_TTL_MINUTES || 30));
+    await db.insert({
+        table: PASSWORD_RESET_TABLE,
+        values: {
+            user_id: Number(user.id),
+            token_hash: tokenHash(token),
+            expires_at: new Date(Date.now() + ttlMinutes * 60_000).toISOString()
+        }
+    });
+
+    const apiKey = process.env.RESEND_API_KEY || "";
+    if (!apiKey) return;
+    const mainDomain = (process.env.MAIN_DOMAIN || "localhost").replace(/^\.+|\.+$/g, "");
+    const accounts = (process.env.AUTH_DOMAIN || "accounts").replace(/^\.+|\.+$/g, "");
+    const resetUrl = `https://${accounts}.${mainDomain}/reset-password?token=${encodeURIComponent(token)}`;
+    await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({
+            from: process.env.AUTH_FROM_EMAIL || `ProWorkspace <accounts@${mainDomain}>`,
+            to: [user.email],
+            subject: "Reset your ProWorkspace password",
+            html: `<p>Use the link below to reset your password. It expires in ${ttlMinutes} minutes.</p><p><a href="${resetUrl}">Reset password</a></p>`
+        })
+    });
+};
+
+export const resetPasswordWithToken = async (token: string, password: string) => {
+    await ensureAuthTables();
+    if (token.length < 32 || password.length < 10) return false;
+    const result = await db.select({
+        table: PASSWORD_RESET_TABLE,
+        columns: ["id", "user_id", "expires_at", "used_at"],
+        where: { field: "token_hash", operator: "eq", value: tokenHash(token) },
+        limit: 1
+    });
+    const reset = Array.isArray(result.rows) ? result.rows[0] as { id?: unknown; user_id?: unknown; expires_at?: unknown; used_at?: unknown } | undefined : undefined;
+    if (!reset || reset.used_at || new Date(String(reset.expires_at)).getTime() <= Date.now()) return false;
+    await db.update({ table: "users", values: { password: passwordHash(password) }, where: { field: "id", operator: "eq", value: Number(reset.user_id) } });
+    await db.update({ table: PASSWORD_RESET_TABLE, values: { used_at: new Date().toISOString() }, where: { field: "id", operator: "eq", value: Number(reset.id) } });
+    return true;
 };
 
 export const cleanupExpiredSignupAttempts = async () => {

@@ -60,9 +60,10 @@ const managedHttpDomains = (config: Config) => {
     const mainDomain = env("MAIN_DOMAIN", config.domain || "localhost").replace(/\.$/, "");
     const labels = [
         "",
-        env("AUTH_DOMAIN", "auth"),
+        env("AUTH_DOMAIN", "accounts"),
         env("DEV_DOMAIN", "dev"),
-        env("DNS_DOMAIN", "dns")
+        env("DNS_DOMAIN", "dns"),
+        "admin", "mail", "chat", "drive", "forms", "notes", "office", "ai", "passwords", "git", "tools"
     ];
     const explicitDomains = splitCsv(env("EXTRA_DOMAINS"));
 
@@ -341,10 +342,13 @@ MAIN_DOMAIN=${env("MAIN_DOMAIN")}
 NS_DOMAIN=${env("NS_DOMAIN", "ns1,ns2")}
 DNS_DOMAIN=${env("DNS_DOMAIN", "dns")}
 DEV_DOMAIN=${env("DEV_DOMAIN", "dev")}
-AUTH_DOMAIN=${env("AUTH_DOMAIN", "auth")}
+AUTH_DOMAIN=${env("AUTH_DOMAIN", "accounts")}
 VPS_IPV4=${env("VPS_IPV4")}
 VPS_IPV6=${env("VPS_IPV6")}
 COREDNS_ZONE_PATH=/generated/coredns/db.zone
+RESEND_API_KEY=${env("RESEND_API_KEY")}
+AUTH_FROM_EMAIL=${env("AUTH_FROM_EMAIL")}
+AUTH_RESET_TTL_MINUTES=${env("AUTH_RESET_TTL_MINUTES", "30")}
 
 DATABASE_URL=postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}
 DB_HOST=postgres
