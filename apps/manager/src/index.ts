@@ -342,6 +342,9 @@ NS_DOMAIN=${env("NS_DOMAIN", "ns1,ns2")}
 DNS_DOMAIN=${env("DNS_DOMAIN", "dns")}
 DEV_DOMAIN=${env("DEV_DOMAIN", "dev")}
 AUTH_DOMAIN=${env("AUTH_DOMAIN", "auth")}
+VPS_IPV4=${env("VPS_IPV4")}
+VPS_IPV6=${env("VPS_IPV6")}
+COREDNS_ZONE_PATH=/generated/coredns/db.zone
 
 DATABASE_URL=postgresql://${process.env.POSTGRES_USER}:${process.env.POSTGRES_PASSWORD}@postgres:5432/${process.env.POSTGRES_DB}
 DB_HOST=postgres

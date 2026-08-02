@@ -32,6 +32,9 @@ services:
       DNS_DOMAIN: ${DNS_DOMAIN}
       DEV_DOMAIN: ${DEV_DOMAIN}
       AUTH_DOMAIN: ${AUTH_DOMAIN}
+      VPS_IPV4: ${VPS_IPV4}
+      VPS_IPV6: ${VPS_IPV6}
+      COREDNS_ZONE_PATH: /generated/coredns/db.zone
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DB_HOST: postgres
       DB_USER: ${POSTGRES_USER}
