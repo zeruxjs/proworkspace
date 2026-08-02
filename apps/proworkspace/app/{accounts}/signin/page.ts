@@ -19,6 +19,18 @@ const field = (body: Record<string, unknown>, key: string) =>
     typeof body[key] === "string" ? body[key].trim() : "";
 
 const safeNext = (value: string) => {
+    const mainDomain = (process.env.MAIN_DOMAIN || "").trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+    if (/^https:\/\//i.test(value)) {
+        try {
+            const target = new URL(value);
+            if (mainDomain && (target.hostname === mainDomain || target.hostname.endsWith(`.${mainDomain}`))) {
+                return target.href;
+            }
+        } catch {
+            return "/";
+        }
+    }
+
     if (!value.startsWith("/") || value.startsWith("//")) {
         return "/";
     }

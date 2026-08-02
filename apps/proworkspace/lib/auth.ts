@@ -183,10 +183,14 @@ export const requireAdminPage = async (context: ZeruxRequestContext) => {
         const publicPathname = typeof multisite?.originalPathname === "string"
             ? multisite.originalPathname
             : context.url.pathname;
-        const next = encodeURIComponent(publicPathname + context.url.search);
         const mainDomain = (process.env.MAIN_DOMAIN || "").trim().replace(/^\.+|\.+$/g, "");
         const authLabel = (process.env.AUTH_DOMAIN || "auth").trim().replace(/^\.+|\.+$/g, "");
         const forwardedProto = String(context.req.headers["x-forwarded-proto"] || "https").split(",")[0]?.trim() || "https";
+        const forwardedHost = String(context.req.headers["x-forwarded-host"] || context.req.headers.host || "").split(",")[0]?.trim() || "";
+        const returnUrl = forwardedHost
+            ? `${forwardedProto}://${forwardedHost}${publicPathname}${context.url.search}`
+            : publicPathname + context.url.search;
+        const next = encodeURIComponent(returnUrl);
         const signInOrigin = mainDomain && mainDomain !== "localhost"
             ? `${forwardedProto}://${authLabel ? `${authLabel}.` : ""}${mainDomain}`
             : "";
