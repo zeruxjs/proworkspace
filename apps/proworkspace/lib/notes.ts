@@ -73,7 +73,7 @@ export const createNote = async (user: CurrentUser, vault: Vault, input: { title
     if (parent && parent.space_id !== vault.id) throw new Error("Invalid parent folder.");
     const markdown = type === "page" ? (input.markdown ?? "") : "";
     const publicId = id(type === "page" ? "note" : "folder");
-    await db.insert({ table: "notes_nodes", values: { space_id: vault.id, parent_id: parent?.id ?? null, node_id: publicId, type, title, slug: slug(title), path: await uniquePath(vault.id, parent, title), sort_order: Date.now(), markdown, excerpt: markdown.replace(/[#>*_`-]/g, "").replace(/\s+/g, " ").slice(0, 240), status: "active", is_template: Boolean(input.template), checksum: crypto.createHash("sha256").update(markdown).digest("hex"), created_by: user.id, updated_by: user.id }, returning: ["id"] });
+    await db.insert({ table: "notes_nodes", values: { space_id: vault.id, parent_id: parent?.id ?? null, node_id: publicId, type, title, slug: slug(title), path: await uniquePath(vault.id, parent, title), sort_order: Math.floor(Date.now() / 1000), markdown, excerpt: markdown.replace(/[#>*_`-]/g, "").replace(/\s+/g, " ").slice(0, 240), status: "active", is_template: Boolean(input.template), checksum: crypto.createHash("sha256").update(markdown).digest("hex"), created_by: user.id, updated_by: user.id }, returning: ["id"] });
     const note = await getNote(publicId, user);
     if (!note) throw new Error("Note could not be created.");
     if (type === "page") await indexNote(note);
