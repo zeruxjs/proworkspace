@@ -1,282 +1,64 @@
 import type { ZeruxRequestContext } from "zeruxjs";
-import {
-    addComment,
-    createAccessRequest,
-    createLabel,
-    createNode,
-    createShare,
-    createSpace,
-    getNodeByPublicId,
-    getNodeRelations,
-    getNotesContext,
-    getSpaceGraph,
-    getSpaceByPublicId,
-    inviteToSpace,
-    linkLabel,
-    listComments,
-    listLabels,
-    listNodes,
-    listNodeRevisions,
-    listShares,
-    listSpaces,
-    revokeShare,
-    searchNotes,
-    syncSpaceSince,
-    updateSpace,
-    updateNodeMarkdown,
-    type NotesNodeType,
-    type NotesRole
-} from "../../../../lib/notes.ts";
+import { createNote, createVault, deleteNote, getNote, getVault, graph, listNotes, notesContext, relations, revisions, search, snapshot, updateNote } from "../../../../lib/notes.ts";
 
 type Body = Record<string, unknown>;
-
-const asBody = (body: unknown): Body => {
-    if (body && typeof body === "object" && !Array.isArray(body)) {
-        return body as Body;
-    }
-
-    if (typeof body === "string") {
-        try {
-            return JSON.parse(body) as Body;
-        } catch {
-            return Object.fromEntries(new URLSearchParams(body).entries());
-        }
-    }
-
+const body = (value: unknown): Body => {
+    if (value && typeof value === "object" && !Array.isArray(value)) return value as Body;
+    if (typeof value === "string") { try { return JSON.parse(value) as Body; } catch { return Object.fromEntries(new URLSearchParams(value)); } }
     return {};
 };
-
-const text = (body: Body, key: string, max = 5000) =>
-    (typeof body[key] === "string" ? body[key] : "").trim().slice(0, max);
-
-const numberOrNull = (value: unknown) => {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-};
-
-const nodeType = (value: string): NotesNodeType =>
-    value === "folder" ? "folder" : "page";
-
-const role = (value: string): NotesRole =>
-    ["owner", "editor", "commenter", "viewer"].includes(value) ? value as NotesRole : "viewer";
-
-const error = (message: string, status = 400) => ({
-    ok: false,
-    status,
-    message
-});
+const text = (value: Body, key: string, max = 500_000) => typeof value[key] === "string" ? value[key].slice(0, max) : "";
+const fail = (message: string, status = 400) => ({ ok: false, status, message });
 
 export const GET = async (context: ZeruxRequestContext) => {
     try {
-        const { orgId, user } = await getNotesContext(context);
-        if (!orgId) return error("Workspace setup is not complete.", 409);
-
-        const action = context.query.get("action") ?? "snapshot";
-        const spacePublicId = context.query.get("spaceId") ?? "";
-        const space = spacePublicId ? await getSpaceByPublicId(spacePublicId) : null;
-
-        if (action === "spaces") {
-            return {
-                ok: true,
-                spaces: await listSpaces(orgId, user),
-                labels: await listLabels(orgId)
-            };
-        }
-
-        if (action === "search") {
-            if (!space) return error("Space not found.", 404);
-            return {
-                ok: true,
-                results: await searchNotes(space.id, context.query.get("q") ?? "")
-            };
-        }
-
-        if (action === "sync") {
-            if (!space) return error("Space not found.", 404);
-            return {
-                ok: true,
-                ...(await syncSpaceSince(space.id, context.query.get("since") ?? ""))
-            };
-        }
-
-        if (action === "comments") {
-            const node = context.query.get("nodeId") ? await getNodeByPublicId(context.query.get("nodeId") ?? "") : null;
-            if (!node) return error("Page not found.", 404);
-            return {
-                ok: true,
-                comments: await listComments(node.id)
-            };
-        }
-
+        const user = await notesContext(context);
+        const action = context.query.get("action") || "snapshot";
+        const vaultId = context.query.get("vaultId") || "";
+        if (action === "snapshot") return { ok: true, ...(await snapshot(user, vaultId)) };
+        const vault = await getVault(vaultId, user);
+        if (!vault) return fail("Vault not found.", 404);
+        if (action === "search") return { ok: true, results: await search(vault.id, context.query.get("q") || "") };
+        if (action === "graph") return { ok: true, graph: await graph(vault.id) };
         if (action === "relations" || action === "revisions") {
-            const node = context.query.get("nodeId") ? await getNodeByPublicId(context.query.get("nodeId") ?? "") : null;
-            if (!node) return error("Note not found.", 404);
-            return action === "relations"
-                ? { ok: true, relations: await getNodeRelations(node) }
-                : { ok: true, revisions: await listNodeRevisions(node.id) };
+            const note = await getNote(context.query.get("noteId") || "", user);
+            if (!note || note.space_id !== vault.id) return fail("Note not found.", 404);
+            return action === "relations" ? { ok: true, relations: await relations(note) } : { ok: true, revisions: await revisions(note.id) };
         }
-
-        if (action === "graph") {
-            if (!space) return error("Vault not found.", 404);
-            return { ok: true, graph: await getSpaceGraph(space.id) };
-        }
-
-        if (!space) {
-            return {
-                ok: true,
-                spaces: await listSpaces(orgId, user),
-                labels: await listLabels(orgId)
-            };
-        }
-
-        return {
-            ok: true,
-            space,
-            nodes: await listNodes(space.id),
-            shares: await listShares(space.id),
-            labels: await listLabels(orgId),
-            serverTime: new Date().toISOString()
-        };
-    } catch (caught) {
-        return error(caught instanceof Error ? caught.message : "Unable to load notes.", 500);
+        return fail("Unknown request.");
+    } catch (error) {
+        return fail(error instanceof Error && error.message === "AUTH_REQUIRED" ? "Sign in is required." : error instanceof Error ? error.message : "Notes request failed.", error instanceof Error && error.message === "AUTH_REQUIRED" ? 401 : 500);
     }
 };
 
 export const POST = async (context: ZeruxRequestContext) => {
     try {
-        const body = asBody(context.body);
-        const action = text(body, "action", 80);
-        const { orgId, user } = await getNotesContext(context);
-
-        if (!orgId) {
-            return error("Workspace setup is not complete.", 409);
+        const user = await notesContext(context); const input = body(context.body); const action = text(input, "action", 50);
+        if (action === "create-vault") return { ok: true, vault: await createVault(user, text(input, "name", 190)) };
+        const vault = await getVault(text(input, "vaultId", 100), user);
+        if (!vault) return fail("Vault not found.", 404);
+        if (action === "create-note" || action === "create-folder") {
+            const parentId = Number(input.parentId);
+            const note = await createNote(user, vault, { title: text(input, "title", 240), markdown: text(input, "markdown"), type: action === "create-folder" ? "folder" : "page", parentId: Number.isFinite(parentId) && parentId > 0 ? parentId : null, template: input.template === true });
+            return { ok: true, note };
         }
-
-        if (action === "create-space") {
-            if (!user) return error("Sign in is required.", 401);
-            const space = await createSpace(orgId, user, text(body, "name", 190));
-            return { ok: true, space };
+        if (action === "daily-note") {
+            const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+            const existing = (await listNotes(vault.id)).find((note) => note.title === date && note.type === "page");
+            return { ok: true, note: existing ?? await createNote(user, vault, { title: date, markdown: `---\ndate: ${date}\ntags: [daily]\n---\n\n# ${date}\n\n## Tasks\n\n- [ ] \n\n## Notes\n\n`, type: "page" }) };
         }
-
-        if (action === "update-space") {
-            if (!user) return error("Sign in is required.", 401);
-            const space = await getSpaceByPublicId(text(body, "spaceId", 100));
-            if (!space) return error("Space not found.", 404);
-            const updated = await updateSpace(space, user, {
-                name: text(body, "name", 190),
-                description: text(body, "description", 2000),
-                visibility: text(body, "visibility", 40) as "private" | "workspace" | "public",
-                defaultRole: role(text(body, "defaultRole", 40))
-            });
-            return { ok: true, space: updated };
+        const note = await getNote(text(input, "noteId", 100), user);
+        if (!note || note.space_id !== vault.id) return fail("Note not found.", 404);
+        if (action === "save-note") return { ok: true, note: await updateNote(user, note, { title: text(input, "title", 240), markdown: text(input, "markdown"), ...(Object.prototype.hasOwnProperty.call(input, "parentId") ? { parentId: Number(input.parentId) || null } : {}) }) };
+        if (action === "delete-note") { await deleteNote(note); return { ok: true }; }
+        if (action === "duplicate-note") return { ok: true, note: await createNote(user, vault, { title: `${note.title} copy`, markdown: note.markdown, type: note.type, parentId: note.parent_id }) };
+        if (action === "restore-revision") {
+            const revisionId = text(input, "revisionId", 100); const history = await revisions(note.id); const revision = (history as Array<{ revision_id?: string; markdown?: string }>).find((item) => item.revision_id === revisionId);
+            if (!revision) return fail("Revision not found.", 404);
+            return { ok: true, note: await updateNote(user, note, { markdown: revision.markdown || "" }) };
         }
-
-        if (action === "create-node") {
-            if (!user) return error("Sign in is required.", 401);
-            const space = await getSpaceByPublicId(text(body, "spaceId", 100));
-            if (!space) return error("Space not found.", 404);
-            const parentNodePublicId = text(body, "parentNodeId", 100);
-            const parentNode = parentNodePublicId ? await getNodeByPublicId(parentNodePublicId) : null;
-            const node = await createNode({
-                spacePk: space.id,
-                parentId: parentNode?.id ?? numberOrNull(body.parentId),
-                type: nodeType(text(body, "type", 20)),
-                title: text(body, "title", 240),
-                markdown: text(body, "markdown", 200_000),
-                user
-            });
-            return { ok: true, node };
-        }
-
-        if (action === "update-node") {
-            if (!user) return error("Sign in is required.", 401);
-            const node = await getNodeByPublicId(text(body, "nodeId", 100));
-            if (!node) return error("Page not found.", 404);
-            await updateNodeMarkdown(node, text(body, "markdown", 500_000), user, text(body, "title", 240));
-            return { ok: true, serverTime: new Date().toISOString() };
-        }
-
-        if (action === "create-share") {
-            if (!user) return error("Sign in is required.", 401);
-            const space = await getSpaceByPublicId(text(body, "spaceId", 100));
-            if (!space) return error("Space not found.", 404);
-            const node = text(body, "nodeId", 100) ? await getNodeByPublicId(text(body, "nodeId", 100)) : null;
-            const share = await createShare(space.id, node?.id ?? null, user, {
-                label: text(body, "label", 190),
-                role: role(text(body, "role", 40)),
-                authRequired: body.authRequired === true || body.authRequired === "true",
-                maxUses: numberOrNull(body.maxUses)
-            });
-            return { ok: true, share };
-        }
-
-        if (action === "revoke-share") {
-            if (!user) return error("Sign in is required.", 401);
-            const shareId = text(body, "shareId", 100);
-            if (!shareId) return error("Share ID is required.");
-            await revokeShare(shareId, user);
-            return { ok: true };
-        }
-
-        if (action === "invite") {
-            if (!user) return error("Sign in is required.", 401);
-            const space = await getSpaceByPublicId(text(body, "spaceId", 100));
-            if (!space) return error("Space not found.", 404);
-            const email = text(body, "email", 190).toLowerCase();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error("Valid email is required.");
-            await inviteToSpace(space.id, email, role(text(body, "role", 40)), user);
-            return { ok: true };
-        }
-
-        if (action === "create-label") {
-            if (!user) return error("Sign in is required.", 401);
-            const labelType = text(body, "type", 40) === "category" ? "category" : "tag";
-            const label = await createLabel(orgId, user, {
-                type: labelType,
-                name: text(body, "name", 120),
-                color: text(body, "color", 40)
-            });
-            return { ok: true, label };
-        }
-
-        if (action === "link-label") {
-            if (!user) return error("Sign in is required.", 401);
-            const labelPk = numberOrNull(body.labelPk);
-            const targetPk = numberOrNull(body.targetPk);
-            const targetType = text(body, "targetType", 40) === "space" ? "space" : "node";
-            if (!labelPk || !targetPk) return error("Label and target are required.");
-            await linkLabel(labelPk, targetType, targetPk);
-            return { ok: true };
-        }
-
-        if (action === "comment") {
-            const node = await getNodeByPublicId(text(body, "nodeId", 100));
-            if (!node) return error("Page is required before adding a comment.", 400);
-            const comment = text(body, "body", 20_000);
-            if (!comment) return error("Comment cannot be empty.");
-            await addComment(node.id, comment, user, text(body, "anchor", 1000));
-            return { ok: true };
-        }
-
-        if (action === "request-access") {
-            const space = await getSpaceByPublicId(text(body, "spaceId", 100));
-            if (!space) return error("Space not found.", 404);
-            const node = text(body, "nodeId", 100) ? await getNodeByPublicId(text(body, "nodeId", 100)) : null;
-            const email = user?.email ?? text(body, "email", 190).toLowerCase();
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error("Valid email is required.");
-            await createAccessRequest({
-                spacePk: space.id,
-                nodePk: node?.id ?? null,
-                user,
-                email,
-                requestedRole: role(text(body, "role", 40) || "viewer"),
-                message: text(body, "message", 1000)
-            });
-            return { ok: true };
-        }
-
-        return error("Unknown notes action.");
-    } catch (caught) {
-        return error(caught instanceof Error ? caught.message : "Unable to process notes request.", 500);
+        return fail("Unknown action.");
+    } catch (error) {
+        return fail(error instanceof Error && error.message === "AUTH_REQUIRED" ? "Sign in is required." : error instanceof Error ? error.message : "Notes action failed.", error instanceof Error && error.message === "AUTH_REQUIRED" ? 401 : 500);
     }
 };
