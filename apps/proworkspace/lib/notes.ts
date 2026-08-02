@@ -124,8 +124,8 @@ export const indexNote = async (note: Note) => {
 
 export const relations = async (note: Note) => {
     const all = await listNotes(note.space_id); const byId = new Map(all.map((item) => [item.id, item]));
-    const outgoing = rows<Record<string, unknown>>(await db.select({ table: "notes_links", columns: ["target_node_id", "target", "alias", "subpath", "kind", "line"], where: { field: "source_node_id", operator: "eq", value: note.id }));
-    const backlinks = rows<Record<string, unknown>>(await db.select({ table: "notes_links", columns: ["source_node_id", "alias", "subpath", "kind", "line"], where: { field: "target_node_id", operator: "eq", value: note.id })).map((link) => ({ ...link, source: byId.get(Number(link.source_node_id)) }));
+    const outgoing = rows<Record<string, unknown>>(await db.select({ table: "notes_links", columns: ["target_node_id", "target", "alias", "subpath", "kind", "line"], where: { field: "source_node_id", operator: "eq", value: note.id } }));
+    const backlinks = rows<Record<string, unknown>>(await db.select({ table: "notes_links", columns: ["source_node_id", "alias", "subpath", "kind", "line"], where: { field: "target_node_id", operator: "eq", value: note.id } })).map((link) => ({ ...link, source: byId.get(Number(link.source_node_id)) }));
     const select = async (table: string, columns: string[]) => rows<Record<string, unknown>>(await db.select({ table, columns, where: { field: "node_id", operator: "eq", value: note.id } }));
     return { outgoing: outgoing.map((link) => ({ ...link, note: byId.get(Number(link.target_node_id)) })), backlinks, headings: await select("notes_headings", ["heading", "slug", "level", "line"]), properties: await select("notes_properties", ["property_key", "property_value", "value_type"]), tags: await select("notes_tags", ["tag", "line"]) };
 };
