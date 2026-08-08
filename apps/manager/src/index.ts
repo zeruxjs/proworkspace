@@ -164,12 +164,6 @@ async function generateCoreDns(config: Config) {
     log
     errors
 }
-.:53 {
-    forward . 1.1.1.1 8.8.8.8
-    cache 300
-    log
-    errors
-}
 `);
 
     console.log("Generated CoreDNS config");
