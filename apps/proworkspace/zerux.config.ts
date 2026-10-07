@@ -53,13 +53,20 @@ const isDockerRuntime =
     fs.existsSync("/.dockerenv") ||
     process.env.PROWORKSPACE_DOCKER === "true";
 
-const databaseUrl = (() => {
+const databaseOptions = (() => {
+    if (isDockerRuntime) {
+        return {
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: Number(process.env.DB_PORT || 5432)
+        };
+    }
 
     const value = process.env.DATABASE_URL;
 
-    if (!value || isDockerRuntime) {
-        return value;
-    }
+    if (!value) return { connectionString: value };
 
     const parsed = new URL(value);
 
@@ -67,7 +74,7 @@ const databaseUrl = (() => {
         parsed.hostname = "127.0.0.1";
     }
 
-    return parsed.toString();
+    return { connectionString: parsed.toString() };
 })();
 
 const redisHost = (() => {
@@ -123,7 +130,7 @@ const zeruxConfig: ZeruxConfig = {
                 "slug": "something",
                 "connector": "@zeruxjs/db-pg",
                 "options": {
-                    "connectionString": databaseUrl,
+                    ...databaseOptions,
                     "prefix": process.env.DB_PREFIX,
                     "polling": true,
                     "pollingInterval": 1000,
