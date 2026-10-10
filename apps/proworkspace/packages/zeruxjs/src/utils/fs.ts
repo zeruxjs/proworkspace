@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 export const SCRIPT_EXTENSIONS = [".ts", ".js", ".mjs", ".cjs"] as const;
 
@@ -64,7 +65,7 @@ export const walkDirectory = (directoryPath: string): string[] => {
 };
 
 export const importModule = async (filePath: string, mode: "dev" | "start") => {
-    const moduleUrl = new URL(`file://${filePath}`);
+    const moduleUrl = pathToFileURL(path.resolve(filePath));
     if (mode === "dev") {
         moduleUrl.searchParams.set("t", `${Date.now()}`);
     }

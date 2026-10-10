@@ -209,15 +209,37 @@ const getContentType = (filePath: string) => {
     return MIME_TYPES[lookupKey] || "application/octet-stream";
 };
 
-const readRequestBody = async (req: IncomingMessage) =>
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024; // Default limit: 1 MiB.
+const readRequestBody = async (req: IncomingMessage): Promise<Buffer> =>
     new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
-
-        req.on("data", (chunk) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        let size = 0;
+        let settled = false;
+        const fail = (error: Error) => {
+            if (settled) return;
+            settled = true;
+            reject(error);
+        };
+        const declaredLength = Number(req.headers["content-length"]);
+        if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BODY_BYTES) {
+            fail(Object.assign(new Error("Request body exceeds 1 MiB"), { statusCode: 413 }));
+            req.resume();
+            return;
+        }
+        req.on("data", (chunk: Buffer | string) => {
+            if (settled) return;
+            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            size += data.length;
+            if (size > MAX_REQUEST_BODY_BYTES) {
+                fail(Object.assign(new Error("Request body exceeds 1 MiB"), { statusCode: 413 }));
+                req.pause();
+                return;
+            }
+            chunks.push(data);
         });
-        req.on("end", () => resolve(Buffer.concat(chunks)));
-        req.on("error", reject);
+        req.on("end", () => { if (!settled) { settled = true; resolve(Buffer.concat(chunks, size)); } });
+        req.on("error", fail);
+        req.on("aborted", () => fail(new Error("Request aborted")));
     });
 
 const presetHtmlTheme = (html: string, mode: string, resolvedColorScheme: "light" | "dark"): string => {
@@ -988,7 +1010,9 @@ const createRuntime = async (
 
                     await dispatchRoute(0);
                 } catch (error) {
-                    const normalized = exceptionHandler(error);
+                    const normalized = (error && typeof error === "object" && "statusCode" in error && error.statusCode === 413)
+                        ? { status: 413, body: { error: "Payload Too Large" } }
+                        : exceptionHandler(error);
                     if (!res.writableEnded) {
                         sendResponse(res, normalized.body, normalized.status, context);
                     }

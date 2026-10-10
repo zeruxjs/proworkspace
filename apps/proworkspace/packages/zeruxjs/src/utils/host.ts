@@ -1,75 +1,50 @@
 import { networkInterfaces } from "node:os";
 
-const getLocalIps = () => {
-    const ips = new Set<string>(["127.0.0.1", "::1", "localhost"]);
+const normalizeHost = (value: string): string => {
+    const host = value.trim().toLowerCase();
+    if (host.startsWith("[")) {
+        const closing = host.indexOf("]");
+        return closing < 0 ? "" : host.slice(1, closing);
+    }
+    if ((host.match(/:/g) || []).length > 1) return host; // bare IPv6
+    return host.split(":", 1)[0].replace(/\.$/, "");
+};
 
-    let interfaces: ReturnType<typeof networkInterfaces>;
+const getLocalIps = (): Set<string> => {
+    const ips = new Set(["127.0.0.1", "::1", "localhost"]);
     try {
-        interfaces = networkInterfaces();
-    } catch {
-        return ips;
-    }
-    
-    for (const name of Object.keys(interfaces)) {
-        for (const net of interfaces[name] || []) {
-            ips.add(net.address);
+        for (const addresses of Object.values(networkInterfaces())) {
+            for (const address of addresses || []) ips.add(address.address.toLowerCase());
         }
-    }
-    
+    } catch { /* Interface discovery is optional. */ }
     return ips;
 };
-
 const LOCAL_IPS = getLocalIps();
 
-export const isLocalHost = (host: string) => {
-    const hostname = host.split(":")[0].toLowerCase();
-    
-    if (LOCAL_IPS.has(hostname)) return true;
-    if (hostname.endsWith(".localhost")) return true;
-    
-    // Check for common local IP ranges if not already in LOCAL_IPS
-    if (
-        hostname.startsWith("192.168.") ||
-        hostname.startsWith("10.") ||
-        (hostname.startsWith("172.") && 
-         Number.parseInt(hostname.split(".")[1]) >= 16 && 
-         Number.parseInt(hostname.split(".")[1]) <= 31)
-    ) {
-        return true;
-    }
-    
-    return false;
+export const isLocalHost = (host: string): boolean => {
+    const hostname = normalizeHost(host);
+    return Boolean(hostname) && (LOCAL_IPS.has(hostname) || hostname.endsWith(".localhost"));
 };
 
-const matchWildcard = (pattern: string, host: string) => {
+const matchWildcard = (pattern: string, host: string): boolean => {
     if (pattern === "*") return true;
     if (pattern === host) return true;
     if (pattern.startsWith("*.")) {
-        const domain = pattern.slice(2);
-        return host === domain || host.endsWith(`.${domain}`);
+        const suffix = pattern.slice(2);
+        return Boolean(suffix) && host.endsWith(`.${suffix}`);
     }
     return false;
 };
 
 export const isAllowedHost = (
-    host: string, 
-    allowedDomains: string | string[] = [], 
+    host: string,
+    allowedDomains: string | string[] = [],
     allowedDevDomain?: string
-) => {
-    const hostname = host.split(":")[0].toLowerCase();
-    
+): boolean => {
+    const hostname = normalizeHost(host);
+    if (!hostname || /[\s\/\\@]/.test(hostname)) return false;
     if (isLocalHost(hostname)) return true;
-    
-    if (allowedDevDomain && hostname === allowedDevDomain.toLowerCase()) {
-        return true;
-    }
-    
+    if (allowedDevDomain && hostname === normalizeHost(allowedDevDomain)) return true;
     const domains = Array.isArray(allowedDomains) ? allowedDomains : [allowedDomains];
-    for (const pattern of domains) {
-        if (matchWildcard(pattern.toLowerCase(), hostname)) {
-            return true;
-        }
-    }
-    
-    return false;
+    return domains.some((pattern) => matchWildcard(normalizeHost(pattern) === "*" ? "*" : pattern.toLowerCase().replace(/\.$/, ""), hostname));
 };

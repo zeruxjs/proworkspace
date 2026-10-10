@@ -47,6 +47,9 @@ const keyMaterial = (purpose: string) => {
     const key = process.env.SECURITY_SESSION_KEY || process.env.SECURITY_ENCRYPTION_KEY || "change-me-session-key";
     const salt = process.env.SECURITY_SESSION_SALT || process.env.SECURITY_ENCRYPTION_SALT || "change-me-session-salt";
 
+    if (process.env.NODE_ENV === "production" && (key === "change-me-session-key" || salt === "change-me-session-salt")) {
+        throw new Error("Set SECURITY_SESSION_KEY and SECURITY_SESSION_SALT before using sessions in production");
+    }
     return crypto.scryptSync(`${key}:${purpose}`, salt, 32);
 };
 
@@ -118,9 +121,9 @@ export const verifyPassword = (password: string, storedHash: string) => {
 export const createSession = (userId: string | number, additionalData: Record<string, unknown> = {}) => {
     const expiresAt = Math.floor(Date.now() / 1000) + globalConfig.session.expiresIn;
     const payload = JSON.stringify({
+        ...additionalData,
         userId,
-        expiresAt,
-        ...additionalData
+        expiresAt
     });
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv("aes-256-gcm", keyMaterial("session"), iv);
@@ -143,7 +146,7 @@ export const verifySession = (token: string) => {
         const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
         const session = JSON.parse(decrypted) as { expiresAt?: number; userId?: string | number };
 
-        if (!session.userId || !session.expiresAt || Math.floor(Date.now() / 1000) > session.expiresAt) {
+        if ((typeof session.userId !== "string" && typeof session.userId !== "number") || typeof session.expiresAt !== "number" || !Number.isFinite(session.expiresAt) || Math.floor(Date.now() / 1000) >= session.expiresAt) {
             return null;
         }
 

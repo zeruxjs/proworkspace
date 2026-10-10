@@ -40,7 +40,7 @@ export const sanitizeRelativeAssetPath = (value: unknown) => {
 
 export const ensurePathInsideRoot = (rootDir: string, targetPath: string) => {
     const relative = path.relative(rootDir, targetPath);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 };
 
 export const buildContentSecurityPolicy = (

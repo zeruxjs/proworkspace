@@ -46,16 +46,31 @@ export function mount(vnode: VNodeChild, container: Node): Node | undefined {
 }
 
 function patchProp(el: HTMLElement, key: string, prevValue: any, nextValue: any) {
-    if (key.startsWith("on")) {
+    if (/^on[A-Z]/.test(key)) {
         const eventName = key.slice(2).toLowerCase();
         if (prevValue) el.removeEventListener(eventName, prevValue);
-        if (nextValue) el.addEventListener(eventName, nextValue);
+        if (typeof nextValue === "function") el.addEventListener(eventName, nextValue);
+    } else if (key === "innerHTML" || key === "outerHTML" || key === "srcdoc") {
+        // Raw HTML injection is never implicit in ZyroJS.
+        return;
     } else if (typeof nextValue === "function") {
         effect(() => {
             (el as any)[key] = nextValue();
         });
+    } else if (["href", "src", "action", "formAction", "xlink:href"].includes(key) && typeof nextValue === "string" && /^\s*(?:javascript|vbscript|data):/i.test(nextValue)) {
+        el.removeAttribute(key);
+    } else if (key === "className" || key === "class") {
+        el.setAttribute("class", nextValue == null ? "" : String(nextValue));
+    } else if (key === "style" && nextValue && typeof nextValue === "object") {
+        Object.assign(el.style, nextValue);
+    } else if (key === "value" || key === "checked") {
+        (el as any)[key] = nextValue ?? (key === "checked" ? false : "");
+    } else if (nextValue == null || nextValue === false) {
+        el.removeAttribute(key);
+    } else if (nextValue === true) {
+        el.setAttribute(key, "");
     } else {
-        (el as any)[key] = nextValue;
+        el.setAttribute(key, String(nextValue));
     }
 }
 
