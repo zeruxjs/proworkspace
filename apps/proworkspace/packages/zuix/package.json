@@ -1,0 +1,15 @@
+{
+    "name": "Zuix",
+    "version": "0.0.1-alpha.1",
+    "description": "Zuix CSS Library",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "exports": {
+        ".": "./dist/index.js"    },
+    "license": "MIT"
+}

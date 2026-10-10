@@ -9,9 +9,15 @@
 			"path": "apps/proworkspace/packages"
 		},
 		{
+			"name": "Notes",
+			"path": "notes"
+		},
+		{
 			"name": "Proworkspace",
 			"path": "apps/proworkspace"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"terminal.integrated.cwd": "${workspaceFolder:Master}"
+	}
 }
