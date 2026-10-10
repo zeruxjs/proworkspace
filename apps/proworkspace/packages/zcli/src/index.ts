@@ -68,11 +68,14 @@ class ZeruxCLI {
 
     private parseArguments(args: string[]): ParsedArgs {
         const result: ParsedArgs = {
-            namedArgs: {},
+            namedArgs: Object.create(null) as Record<string, string | boolean | string[]>,
             positionalArgs: []
         };
 
         const setNamedArg = (key: string, val: string | boolean) => {
+            if (!key || key === "__proto__" || key === "constructor" || key === "prototype") {
+                throw new Error(`Invalid CLI option: ${key}`);
+            }
             if (key in result.namedArgs) {
                 const existing = result.namedArgs[key];
                 if (Array.isArray(existing)) {

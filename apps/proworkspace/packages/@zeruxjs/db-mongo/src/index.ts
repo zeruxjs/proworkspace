@@ -70,6 +70,17 @@ const toMongoValue = (value: unknown): unknown => {
     return value;
 };
 
+const escapeMongoLike = (value: unknown): string => String(value)
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/%/g, ".*")
+    .replace(/_/g, ".");
+
+const assertSafeField = (name: string): void => {
+    if (!name || name.startsWith("$") || name.includes("\0") || name.split(".").some(part => !part || part.startsWith("$"))) {
+        throw createDatabaseError({ code: "INVALID_WHERE", message: "Unsafe MongoDB field name" });
+    }
+};
+
 const mapOperator = (operator: ComparisonOperator, value: unknown) => {
     switch (operator) {
         case "eq":
@@ -86,7 +97,7 @@ const mapOperator = (operator: ComparisonOperator, value: unknown) => {
             return { $lte: value };
         case "like":
         case "ilike":
-            return { $regex: String(value), ...(operator === "ilike" ? { $options: "i" } : {}) };
+            return { $regex: `^${escapeMongoLike(value)}$`, ...(operator === "ilike" ? { $options: "i" } : {}) };
         case "in":
             return { $in: Array.isArray(value) ? value : [value] };
         case "notIn":
@@ -123,6 +134,8 @@ const buildPredicate = (predicate: WherePredicate): Record<string, unknown> => {
             message: "Mongo where predicates require string field names"
         });
     }
+
+    assertSafeField(predicate.field);
 
     if (predicate.operator === "between") {
         return {

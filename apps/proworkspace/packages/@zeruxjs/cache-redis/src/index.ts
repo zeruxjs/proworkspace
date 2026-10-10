@@ -13,6 +13,11 @@ export interface RedisCacheOptions extends RedisClientOptions {
 
 const serialize = (value: CacheValue) => JSON.stringify(value);
 const deserialize = (value: string): CacheValue => JSON.parse(value) as CacheValue;
+const ttl = (seconds: number | undefined): number | undefined => {
+    if (seconds === undefined) return undefined;
+    if (!Number.isFinite(seconds) || seconds <= 0) throw new RangeError("Cache TTL must be a positive finite number");
+    return Math.ceil(seconds);
+};
 
 /**
  * Title: Redis client-backed cache helper
@@ -32,7 +37,7 @@ class RedisCacheHelper implements CacheHelper {
     }
 
     async set(key: string, value: CacheValue, options: CacheSetOptions = {}): Promise<void> {
-        await this.#client.set(key, serialize(value), options.ttlSeconds ? { EX: Math.ceil(options.ttlSeconds) } : {});
+        await this.#client.set(key, serialize(value), ttl(options.ttlSeconds) === undefined ? {} : { EX: ttl(options.ttlSeconds)! });
     }
 
     async delete(key: string): Promise<boolean> {
@@ -59,14 +64,14 @@ class RedisCacheHelper implements CacheHelper {
         const entries = Object.entries(values);
         if (entries.length === 0) return;
 
-        if (!options.ttlSeconds) {
+        if (ttl(options.ttlSeconds) === undefined) {
             await this.#client.mSet(Object.fromEntries(entries.map(([key, value]) => [key, serialize(value)])));
             return;
         }
 
         const multi = this.#client.multi();
         entries.forEach(([key, value]) => {
-            multi.set(key, serialize(value), { EX: Math.ceil(options.ttlSeconds as number) });
+            multi.set(key, serialize(value), { EX: ttl(options.ttlSeconds)! });
         });
         await multi.exec();
     }
@@ -84,7 +89,7 @@ class RedisCacheHelper implements CacheHelper {
     }
 
     async touch(key: string, ttlSeconds: number): Promise<boolean> {
-        return await this.#client.expire(key, Math.ceil(ttlSeconds)) > 0;
+        return await this.#client.expire(key, ttl(ttlSeconds)!) > 0;
     }
 
     async close(): Promise<void> {

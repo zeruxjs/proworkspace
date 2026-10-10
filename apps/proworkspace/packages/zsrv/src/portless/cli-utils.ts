@@ -481,7 +481,7 @@ export function spawnCommand(
     ? spawn(commandArgs[0], commandArgs.slice(1), {
         stdio: "inherit",
         env,
-        shell: true,
+        shell: false,
       })
     : spawn("/bin/sh", ["-c", commandArgs.map(shellEscape).join(" ")], {
         stdio: "inherit",

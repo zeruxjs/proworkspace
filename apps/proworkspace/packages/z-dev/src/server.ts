@@ -48,7 +48,7 @@ const normalizeAncestorOrigin = (value?: string | null) => {
 };
 
 const isLocalHost = (host: string) => {
-    const hostname = host.split(":")[0].toLowerCase();
+    const hostname = (() => { try { return new URL(`http://${host}`).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return ""; } })();
     if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".localhost")) return true;
     return false;
 };
@@ -127,12 +127,24 @@ const buildFrameAwarePolicy = (nonce: string, req?: IncomingMessage, registratio
     `frame-ancestors ${getFrameAncestors(req, registration).join(" ")}`
 );
 
+const MAX_DEV_BODY_BYTES = 1024 * 1024;
 const readRequestBody = async (req: IncomingMessage) =>
     new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
-        req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        let size = 0;
+        req.on("data", (chunk: Buffer | string) => {
+            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            size += data.length;
+            if (size > MAX_DEV_BODY_BYTES) {
+                reject(Object.assign(new Error("Devtools request body exceeds 1 MiB"), { statusCode: 413 }));
+                req.pause();
+                return;
+            }
+            chunks.push(data);
+        });
         req.on("end", () => resolve(Buffer.concat(chunks)));
         req.on("error", reject);
+        req.on("aborted", () => reject(new Error("Request aborted")));
     });
 
 const toJsonBody = (body: Buffer) => {
@@ -165,6 +177,11 @@ const broadcastEvent = (appName: string, event: SharedDevEvent) => {
 
 const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse) => {
     const host = req.headers.host || "";
+    let requestHostname = "";
+    try { requestHostname = new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, "").toLowerCase(); } catch {
+        sendJson(res, { error: "Invalid Host" }, 400);
+        return;
+    }
     if (isLocalHost(host)) {
         // Localhost/127.0.0.1 is always allowed for devtools server
     } else {
@@ -175,12 +192,12 @@ const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const { app } = resolved;
             let allowed = false;
 
-            if (app.allowedDevDomain && matchWildcard(app.allowedDevDomain, host.split(":")[0])) {
+            if (app.allowedDevDomain && matchWildcard(app.allowedDevDomain, requestHostname)) {
                 allowed = true;
             } else {
                 const domains = Array.isArray(app.allowedDomains) ? app.allowedDomains : [app.allowedDomains];
                 for (const pattern of domains) {
-                    if (pattern && matchWildcard(pattern, host.split(":")[0])) {
+                    if (pattern && matchWildcard(pattern, requestHostname)) {
                         allowed = true;
                         break;
                     }
@@ -241,8 +258,8 @@ const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse) => {
             let hostAllowed = false;
             for (const app of apps) {
                 const domains = Array.isArray(app.allowedDomains) ? app.allowedDomains : [app.allowedDomains];
-                if ((app.allowedDevDomain && matchWildcard(app.allowedDevDomain, host.split(":")[0])) ||
-                    domains.some(d => d && matchWildcard(d, host.split(":")[0]))) {
+                if ((app.allowedDevDomain && matchWildcard(app.allowedDevDomain, requestHostname)) ||
+                    domains.some(d => d && matchWildcard(d, requestHostname))) {
                     hostAllowed = true;
                     break;
                 }
@@ -453,7 +470,14 @@ export const ensureSharedDevServer = async (preferredPort?: number) => {
     }
 
     const server = http.createServer((req, res) => {
-        void handleHttpRequest(req, res);
+        void handleHttpRequest(req, res).catch((error: unknown) => {
+            if (res.headersSent || res.writableEnded) {
+                res.destroy();
+                return;
+            }
+            const status = (error as { statusCode?: number })?.statusCode === 413 ? 413 : 500;
+            sendJson(res, { error: status === 413 ? "Payload Too Large" : "Internal Server Error" }, status);
+        });
     });
 
     await new Promise<void>((resolve, reject) => {

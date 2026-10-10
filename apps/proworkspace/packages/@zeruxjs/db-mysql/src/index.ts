@@ -49,7 +49,9 @@ const createManagedPool = async (
                         return [await options.executor(statement, params ?? []), undefined];
                     }
 
-                    const result = await options.client!.execute!(statement, params);
+                    const execute = options.client?.execute ?? options.client?.query;
+                    if (typeof execute !== "function") throw new Error("MySQL client does not expose execute or query");
+                    const result = await execute.call(options.client, statement, params);
                     return [result, undefined];
                 }
             },
@@ -57,10 +59,7 @@ const createManagedPool = async (
         };
     }
 
-    const loadMySqlModule = new Function(
-        "return import('mysql2/promise')"
-    ) as () => Promise<{ createPool(config: Record<string, unknown>): MySqlPoolLike; }>;
-    const mysqlModule = await loadMySqlModule();
+    const mysqlModule = await import("mysql2/promise");
     const pool = mysqlModule.createPool({
         host: typeof options.host === "string" ? options.host : options.hostname,
         user: typeof options.user === "string" ? options.user : options.username,

@@ -64,10 +64,7 @@ const createManagedPool = async (
         };
     }
 
-    const loadPgModule = new Function(
-        "return import('pg')"
-    ) as () => Promise<{ Pool: new (config: Record<string, unknown>) => PgPoolLike; }>;
-    const pgModule = await loadPgModule();
+    const pgModule = await import("pg");
     const pool = new pgModule.Pool({
         host: typeof options.host === "string" ? options.host : options.hostname,
         user: typeof options.user === "string" ? options.user : options.username,
