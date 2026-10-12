@@ -94,6 +94,12 @@ export interface ZeruxRequestContext {
     params: Record<string, string>;
     query: URLSearchParams;
     body?: unknown;
+    /** Original request stream; use route.meta.streamBody to prevent pre-buffering. */
+    requestStream: IncomingMessage;
+    /** Cache policy for the current response; defaults to private when explicitly called. */
+    setCache(policy: import("../response.js").ResponseCachePolicy): void;
+    /** Convenience factory for a bounded streaming response. */
+    stream(source: import("../response.js").StreamResult['source'], options?: import("../response.js").ResponseStreamOptions): import("../response.js").StreamResult;
     multisiteRegister(url: string, folderName: string): void;
     logger: Logger;
     config: ZeruxConfig;
@@ -101,12 +107,18 @@ export interface ZeruxRequestContext {
     state: Record<string, unknown>;
     env: NodeJS.ProcessEnv;
     services: {
+        get(name: import("./services.js").ServiceName): unknown;
         controllers: Record<string, unknown>;
         composables: Record<string, unknown>;
     };
 }
 
 export interface ZeruxPluginApi {
+    /** Get an initialized generation-scoped database/cache/files/analytics/email manager. */
+    service<T = unknown>(name: import("./services.js").ServiceName): T | undefined;
+    /** Register MCP, JSON-RPC, Connect, tRPC and SSE handlers before server startup. */
+    protocols(): import("../protocols.js").ZeruxProtocols;
+    getLoadStatus(windowMs?: number): import("../metrics.js").ApplicationHttpStatus;
     addRoute(route: RegisteredRouteInput): void;
     removeRoute(pattern: string, method?: string): void;
     addMiddleware(name: string, middleware: MiddlewareFunction): void;
@@ -171,6 +183,11 @@ export interface ZeruxRuntime {
     threadWorkers: Map<string, ZeruxThreadWorkerPool>;
     routes: DiscoveredRoute[];
     publicFiles: Map<string, string>;
+    readonly protocolGateway?: import("../protocols.js").ZeruxProtocolGateway;
+    closeProtocols(): void;
+    readonly serviceScope: import("./services.js").RuntimeServiceScope;
+    closeServices(): Promise<void>;
+    getLoadStatus(windowMs?: number): import("../metrics.js").ApplicationHttpStatus;
     entryModulePath: string | null;
     createHandler(): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
     asPluginApi(): ZeruxPluginApi;

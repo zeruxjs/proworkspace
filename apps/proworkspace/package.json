@@ -9,7 +9,18 @@
   "scripts": {
     "build": "node packages/zeruxjs/dist/bin/zerux.js build",
     "dev": "node packages/zeruxjs/dist/bin/zerux.js dev",
-    "start": "node packages/zeruxjs/dist/bin/zerux.js start"
+    "start": "node packages/zeruxjs/dist/bin/zerux.js start",
+    "build:workspaces": "node scripts/build-workspaces.mjs --verify",
+    "build:plan": "node scripts/build-workspaces.mjs --dry-run",
+    "build:scope": "node scripts/build-workspaces.mjs",
+    "test:workspace-tools": "node --test scripts/*.test.mjs",
+    "test:analytics-sqlite": "node --test tests/integration/analytics-sqlite.test.mjs",
+    "test:analytics-numeric-sqlite": "node --test tests/integration/analytics-numeric-sqlite.test.mjs",
+    "test:analytics-reconciliation-sqlite": "node --test tests/integration/analytics-reconciliation-sqlite.test.mjs",
+    "test:analytics-reconciliation-sql-compiler": "node --test tests/integration/analytics-reconciliation-sql-compilation.test.mjs",
+    "test:analytics-job-sqlite": "node --test tests/integration/analytics-job-sqlite.test.mjs",
+    "test:analytics-job-sql-compiler": "node --test tests/integration/analytics-job-sql-compilation.test.mjs",
+    "test:queue": "node --test packages/@zeruxjs/cache-redis/test/*.test.mjs packages/@zeruxjs/queue/test/*.test.mjs packages/zeruxjs/test/queue-runtime.test.mjs"
   },
   "dependencies": {
     "minio": "^8.0.7",
@@ -25,7 +36,11 @@
     "@zeruxjs/auth": "*",
     "zcli": "*",
     "@zeruxjs/cache": "*",
-    "@zeruxjs/cache-redis": "*"
+    "@zeruxjs/cache-redis": "*",
+    "@zeruxjs/analytics": "*",
+    "@zeruxjs/tags": "*",
+    "@zeruxjs/reports": "*",
+    "@zeruxjs/queue": "*"
   },
   "devDependencies": {
     "@types/node": "^25.6.2",

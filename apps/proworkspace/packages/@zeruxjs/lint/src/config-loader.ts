@@ -1,28 +1,20 @@
-import fs from "node:fs";
-import path from "node:path";
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-const CONFIG_FILES = [
-    "lint.zerux.ts",
-    "lint.zerux.js",
-    "lint.zerux.json",
-    ".lint.zerux.ts",
-    ".lint.zerux.js",
-    ".lint.zerux.json"
-];
-
-export async function loadLintConfig(root: string) {
-    for (const file of CONFIG_FILES) {
-        const full = path.join(root, file);
-
-        if (!fs.existsSync(full)) continue;
-
-        if (file.endsWith(".json")) {
-            return JSON.parse(fs.readFileSync(full, "utf8"));
-        }
-
-        const mod = await import(full);
-        return mod.default ?? mod;
+const configFiles = ['lint.zerux.mjs', 'lint.zerux.js', 'lint.zerux.cjs', 'lint.zerux.json', 'lint.zerux.ts', '.lint.zerux.mjs', '.lint.zerux.js', '.lint.zerux.json'];
+export async function loadLintConfig(root: string): Promise<Record<string, unknown>> {
+  for (const filename of configFiles) {
+    const full = path.resolve(root, filename);
+    let stat;
+    try { stat = await fs.lstat(full); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
     }
-
-    return {};
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) throw new Error('Unsafe lint configuration');
+    const loaded = filename.endsWith('.json') ? JSON.parse(await fs.readFile(full, 'utf8')) : (await import(pathToFileURL(full).href)).default;
+    if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('Lint configuration must be an object');
+    return loaded as Record<string, unknown>;
+  }
+  return {};
 }

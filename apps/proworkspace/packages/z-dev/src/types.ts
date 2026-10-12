@@ -80,4 +80,12 @@ export interface SharedDevSnapshot {
     };
     clientEvents: Record<string, unknown>[];
     logs: string[];
+    reload?: {
+        generation: number;
+        attempts: number;
+        failures: number;
+        rebuilding: boolean;
+        closed: boolean;
+        lastError: string | null;
+    };
 }

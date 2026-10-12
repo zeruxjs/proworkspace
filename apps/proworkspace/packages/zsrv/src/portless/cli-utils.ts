@@ -7,6 +7,9 @@ import * as path from "node:path";
 import * as readline from "node:readline";
 import { execSync, spawn } from "node:child_process";
 import { PORTLESS_HEADER } from "./proxy.js";
+import { readCommittedProxyState, PendingStartupTransactionError } from "./committed-state.js";
+import { recoverInterruptedStartup } from "./startup-state.js";
+import { withOperationLock } from "./operation-lock.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -102,13 +105,7 @@ export function resolveStateDir(port: number): string {
 
 /** Read the proxy port from a given state directory. Returns null if unreadable. */
 export function readPortFromDir(dir: string): number | null {
-  try {
-    const raw = fs.readFileSync(path.join(dir, "proxy.port"), "utf-8").trim();
-    const port = parseInt(raw, 10);
-    return isNaN(port) ? null : port;
-  } catch {
-    return null;
-  }
+  return readCommittedProxyState(dir)?.port ?? null;
 }
 
 /** Name of the marker file that indicates the proxy is running with TLS. */
@@ -116,11 +113,7 @@ const TLS_MARKER_FILE = "proxy.tls";
 
 /** Read the TLS marker from a state directory. */
 export function readTlsMarker(dir: string): boolean {
-  try {
-    return fs.existsSync(path.join(dir, TLS_MARKER_FILE));
-  } catch {
-    return false;
-  }
+  return readCommittedProxyState(dir)?.tls ?? false;
 }
 
 /** Write or remove the TLS marker in the state directory. */
@@ -172,12 +165,7 @@ const TLD_FILE = "proxy.tld";
 
 /** Read the TLD from a state directory. Returns DEFAULT_TLD if absent. */
 export function readTldFromDir(dir: string): string {
-  try {
-    const raw = fs.readFileSync(path.join(dir, TLD_FILE), "utf-8").trim();
-    return raw || DEFAULT_TLD;
-  } catch {
-    return DEFAULT_TLD;
-  }
+  return readCommittedProxyState(dir)?.tld ?? DEFAULT_TLD;
 }
 
 /** Write or remove the TLD file in the state directory. */
@@ -228,32 +216,28 @@ export async function discoverState(): Promise<{
   // Env var override
   if (process.env.PORTLESS_STATE_DIR) {
     const dir = process.env.PORTLESS_STATE_DIR;
-    const port = readPortFromDir(dir) ?? getDefaultPort();
-    const tls = readTlsMarker(dir);
-    const tld = readTldFromDir(dir);
-    return { dir, port, tls, tld };
+    const state = readCommittedProxyState(dir);
+    return { dir, port: state?.port ?? getDefaultPort(), tls: state?.tls ?? false, tld: state?.tld ?? getDefaultTld() };
   }
 
   // Check user-level state first (~/.portless)
-  const userPort = readPortFromDir(USER_STATE_DIR);
-  if (userPort !== null) {
+  const userState = readCommittedProxyState(USER_STATE_DIR);
+  if (userState) {
+    const userPort = userState.port;
     // Always use plain HTTP for the liveness check. The TLS-enabled proxy
     // accepts plain HTTP via byte-peeking, so this works for both modes and
     // avoids TLS handshake timeouts that can cause false negatives.
     if (await isProxyRunning(userPort)) {
-      const tls = readTlsMarker(USER_STATE_DIR);
-      const tld = readTldFromDir(USER_STATE_DIR);
-      return { dir: USER_STATE_DIR, port: userPort, tls, tld };
+      return { dir: USER_STATE_DIR, port: userPort, tls: userState.tls, tld: userState.tld };
     }
   }
 
   // Check system-level state (/tmp/portless)
-  const systemPort = readPortFromDir(SYSTEM_STATE_DIR);
-  if (systemPort !== null) {
+  const systemState = readCommittedProxyState(SYSTEM_STATE_DIR);
+  if (systemState) {
+    const systemPort = systemState.port;
     if (await isProxyRunning(systemPort)) {
-      const tls = readTlsMarker(SYSTEM_STATE_DIR);
-      const tld = readTldFromDir(SYSTEM_STATE_DIR);
-      return { dir: SYSTEM_STATE_DIR, port: systemPort, tls, tld };
+      return { dir: SYSTEM_STATE_DIR, port: systemPort, tls: systemState.tls, tld: systemState.tld };
     }
   }
 
@@ -265,13 +249,30 @@ export async function discoverState(): Promise<{
   for (const port of probePorts) {
     if (await isProxyRunning(port)) {
       const dir = resolveStateDir(port);
-      const tls = readTlsMarker(dir);
-      const tld = readTldFromDir(dir);
-      return { dir, port, tls, tld };
+      const state = readCommittedProxyState(dir);
+      return { dir, port: state?.port ?? port, tls: state?.tls ?? false, tld: state?.tld ?? getDefaultTld() };
     }
   }
 
   return { dir: resolveStateDir(defaultPort), port: defaultPort, tls: false, tld: getDefaultTld() };
+}
+
+/** Recover an interrupted startup only while holding that directory's
+ * operation lock, then retry discovery. This is used for lifecycle commands;
+ * ordinary read accessors deliberately remain read-only and fail closed.
+ */
+export async function discoverStateWithRecovery(): ReturnType<typeof discoverState> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await discoverState(); }
+    catch (error) {
+      if (!(error instanceof PendingStartupTransactionError)) throw error;
+      await withOperationLock(error.stateDir, async () => {
+        recoverInterruptedStartup(error.stateDir);
+      });
+    }
+  }
+  // A concurrent writer kept replacing a journal; never guess active state.
+  throw new Error('Proxy state remained unstable after recovery attempts');
 }
 
 // ---------------------------------------------------------------------------
@@ -428,107 +429,21 @@ export async function waitForProxy(
   return false;
 }
 
-/** Escape a string for safe inclusion in a single-quoted shell argument. */
-function shellEscape(arg: string): string {
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
-/**
- * Walk up from `cwd` to the filesystem root, collecting all
- * `node_modules/.bin` directories that exist. Returns them in
- * nearest-first order so the closest binaries take priority.
- */
-function collectBinPaths(cwd: string): string[] {
-  const dirs: string[] = [];
-  let dir = cwd;
-  for (;;) {
-    const bin = path.join(dir, "node_modules", ".bin");
-    if (fs.existsSync(bin)) {
-      dirs.push(bin);
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return dirs;
-}
-
-/**
- * Build a PATH string with `node_modules/.bin` directories prepended.
- */
-function augmentedPath(env: NodeJS.ProcessEnv | undefined): string {
-  const base = (env ?? process.env).PATH ?? "";
-  const bins = collectBinPaths(process.cwd());
-  return bins.length > 0 ? bins.join(path.delimiter) + path.delimiter + base : base;
-}
-
-/**
- * Spawn a command with proper signal forwarding, error handling, and exit
- * code propagation. Uses /bin/sh (Unix) or cmd.exe (Windows) so that shell
- * scripts and version manager shims are resolved. Prepends node_modules/.bin
- * to PATH so local project binaries (e.g. next, vite) are found.
- */
+/** Compatibility wrapper for older applications. New callers should use
+ * launchSupervisedCommand(), which reports readiness and exposes stop(). */
+import { launchSupervisedCommand, exitStatus } from './process-supervisor.js';
 export function spawnCommand(
   commandArgs: string[],
-  options?: {
-    env?: NodeJS.ProcessEnv;
-    onCleanup?: () => void;
-  }
+  options?: { env?: NodeJS.ProcessEnv; onCleanup?: () => void }
 ): void {
-  const env = { ...(options?.env ?? process.env), PATH: augmentedPath(options?.env) };
-
-  const child = isWindows
-    ? spawn(commandArgs[0], commandArgs.slice(1), {
-        stdio: "inherit",
-        env,
-        shell: false,
-      })
-    : spawn("/bin/sh", ["-c", commandArgs.map(shellEscape).join(" ")], {
-        stdio: "inherit",
-        env,
-      });
-
-  let exiting = false;
-
-  const cleanup = () => {
-    process.removeListener("SIGINT", onSigInt);
-    process.removeListener("SIGTERM", onSigTerm);
-    options?.onCleanup?.();
-  };
-
-  const handleSignal = (signal: NodeJS.Signals) => {
-    if (exiting) return;
-    exiting = true;
-    child.kill(signal);
-    cleanup();
-    process.exit(128 + (SIGNAL_CODES[signal] || 15));
-  };
-
-  const onSigInt = () => handleSignal("SIGINT");
-  const onSigTerm = () => handleSignal("SIGTERM");
-
-  process.on("SIGINT", onSigInt);
-  process.on("SIGTERM", onSigTerm);
-
-  child.on("error", (err) => {
-    if (exiting) return;
-    exiting = true;
-    console.error(`Failed to run command: ${err.message}`);
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      console.error(`Is "${commandArgs[0]}" installed and in your PATH?`);
-    }
-    cleanup();
-    process.exit(1);
-  });
-
-  child.on("exit", (code, signal) => {
-    if (exiting) return;
-    exiting = true;
-    cleanup();
-    if (signal) {
-      process.exit(128 + (SIGNAL_CODES[signal] || 15));
-    }
-    process.exit(code ?? 1);
+  void launchSupervisedCommand(commandArgs, {
+    env: options?.env,
+    onExit: result => {
+      try { options?.onCleanup?.(); } finally { process.exitCode = exitStatus(result); }
+    },
+  }).catch(error => {
+    console.error(`Failed to run command: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
   });
 }
 

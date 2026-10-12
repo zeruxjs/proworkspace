@@ -44,6 +44,7 @@ const addCommands = () => {
         "zerux",
         "build",
         async () => {
+            registerLoader("zerux");
             await buildProject();
         },
         {

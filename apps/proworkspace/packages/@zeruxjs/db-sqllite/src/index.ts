@@ -1,82 +1,36 @@
 import type { DatabaseConnectorFactory } from "@zeruxjs/db";
-import { createSqlConnector } from "../../db-sql-core/dist/index.js";
+import { createSqlConnector } from "@zeruxjs/db-sql-core";
+import { createSqliteExecutor, openSqlite } from "./driver.js";
+import type { SqliteOptions, SqliteDatabase } from "./driver.js";
+import { sqliteDialect } from "./dialect.js";
 
-type BetterSqliteStatement = {
-    all(...params: unknown[]): unknown[];
-    run(...params: unknown[]): {
-        changes: number;
-        lastInsertRowid?: number;
-    };
-};
-
-type BetterSqliteDatabase = {
-    prepare(statement: string): BetterSqliteStatement;
-    exec(statement: string): void;
-};
-
-const createBetterSqliteExecutor = (filename: string) => {
-    const BetterSqlite = require("better-sqlite3") as new (file: string) => BetterSqliteDatabase;
-    const database = new BetterSqlite(filename);
-
+/** Node built-in SQLite by default, optional better-sqlite3, or injected client/executor. */
+export const createConnector: DatabaseConnectorFactory = async options => {
+    const config = options as SqliteOptions & Record<string, unknown>;
+    let db: SqliteDatabase | undefined;
+    let owned = false;
+    if (!config.executor && !config.client && !config.pool) {
+        db = config.databaseInstance ?? await openSqlite(config.filename ?? ":memory:", config.driver, config.readonly ?? false);
+        owned = !config.databaseInstance;
+    }
+    const delegate = createSqlConnector(sqliteDialect, {
+        ...config,
+        database: typeof config.database === "string" ? config.database : undefined,
+        fixedDatabase: true,
+        executor: db ? createSqliteExecutor(db) : config.executor as (sql: string, params: unknown[]) => unknown
+    });
     return {
-        executor: (statement: string, params: unknown[]) => {
-            const normalized = statement.trim().toUpperCase();
-            if (normalized.startsWith("CREATE DATABASE") || normalized.startsWith("DROP DATABASE") || normalized.startsWith("USE ")) {
-                return {
-                    changes: 0
-                };
+        ...delegate,
+        execute(operation, context) {
+            if (operation.op === "createDb" || operation.op === "dropDb" || operation.op === "switchDB") {
+                throw new Error(`SQLite cannot execute ${operation.op}`);
             }
-
-            if (normalized.startsWith("CREATE ") || normalized.startsWith("DROP ") || normalized.startsWith("ALTER ") || normalized.startsWith("TRUNCATE ")) {
-                database.exec(statement);
-                return {
-                    changes: 0
-                };
-            }
-
-            const prepared = database.prepare(statement);
-            if (normalized.startsWith("SELECT")) {
-                return prepared.all(...params);
-            }
-
-            return prepared.run(...params);
-        }
+            return delegate.execute(operation, context);
+        },
+        async disconnect() { await delegate.disconnect?.(); if (owned) db?.close(); },
+        getNativeConnection() { return db ?? delegate.getNativeConnection?.(); }
     };
 };
-
-/**
- * Title: SQLite connector factory
- * Description: Creates the SQLite JSON connector and auto-wires better-sqlite3 when a filename is provided.
- * Global Variables: none
- * @param options Connector options.
- * @returns SQLite connector instance.
- */
-export const createConnector: DatabaseConnectorFactory = async (options) => {
-    const sqliteOptions = typeof options.filename === "string" && !options.executor && !options.client && !options.pool
-        ? {
-            ...options,
-            ...createBetterSqliteExecutor(options.filename)
-        }
-        : options;
-
-    return createSqlConnector(
-        {
-            kind: "sqlite",
-            quoteIdentifier: (identifier: string) => `"${identifier.replace(/"/g, "\"\"")}"`,
-            placeholder: () => "?",
-            functions: {
-                LEN: "LENGTH",
-                NOW: "CURRENT_TIMESTAMP",
-                CURRENT_TIMESTAMP: "CURRENT_TIMESTAMP",
-                CURRENT_DATE: "CURRENT_DATE",
-                DATE_DIFF: "JULIANDAY"
-            },
-            supportsReturning: true,
-            supportsIfNotExistsIndex: true,
-            autoIncrementKeyword: "AUTOINCREMENT"
-        },
-        sqliteOptions
-    );
-};
-
+export { createSqliteExecutor, openSqlite } from "./driver.js";
+export type { SqliteDatabase, SqliteDriver, SqliteOptions } from "./driver.js";
 export default createConnector;

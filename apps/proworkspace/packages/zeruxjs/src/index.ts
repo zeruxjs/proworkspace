@@ -66,6 +66,19 @@ export interface AuthConfig {
 }
 
 export interface ZeruxConfig {
+    /** Named storage connections; initialized before email service. */
+    files?: import('./bootstrap/services.js').FilesStartupConfig;
+    /** Named SMTP providers. Never serialized into runtime manifests. */
+    email?: import('./bootstrap/services.js').EmailStartupConfig;
+    /** Best-effort telemetry backed by a named database connector. */
+    analytics?: import('./bootstrap/services.js').AnalyticsStartupConfig;
+    /** GA4-style event tags and browser ttag script, managed as a private service. */
+    tags?: import('./bootstrap/services.js').TagsStartupConfig;
+    /** Authenticated internal analytics report studio. */
+    reports?: import('./bootstrap/services.js').ReportsStartupConfig;
+    /** BullMQ queues and optional workers. Credentials remain server-side. */
+    queue?: import('./bootstrap/services.js').QueueStartupConfig;
+    protocols?: import("./protocols.js").ZeruxProtocolOptions;
     type?: "fix" | "dynamic" | "function";
     entryPoint?: string;
     outDir?: string;
@@ -124,3 +137,24 @@ export { exceptionHandler } from "./exceptions/exception_handler.js";
 export { logger, Logger } from "./bootstrap/logger.js";
 export { redirect, isRedirectResponse, RedirectType } from "./navigation.js";
 export type { RedirectResponse } from "./navigation.js";
+
+export { createZeruxProtocols } from "./protocols.js";
+export type { ZeruxProtocols, ZeruxProtocolOptions } from "./protocols.js";
+export { cacheControl, applyCachePolicy, cached, stream, sendStream } from "./response.js";
+export type { ResponseCachePolicy, ResponseStreamOptions, StreamResult, CachedResult } from "./response.js";
+
+export { ApplicationHttpMetrics } from "./metrics.js";
+export type { ApplicationHttpStatus, HttpStatusFamily } from "./metrics.js";
+
+export { createFetchRoute, registerFetchRoutes, sendFetchResponse } from "./fetch-route.js";
+export type { FetchRouteHandler, FetchRouteRegistration } from "./fetch-route.js";
+
+export { createServiceScope, initializeRuntimeServices } from "./bootstrap/services.js";
+export type { RuntimeServiceScope, ServiceName, ServiceStatus } from "./bootstrap/services.js";
+
+export { buildProjectSources, resolveProductionStructure } from "./commands/project-builder.js";
+export type { ProjectBuildOptions, ProductionBuildManifest } from "./commands/project-builder.js";
+
+export { redactManifestConfig } from "./bootstrap/manifest-config.js";
+
+export { createRequestLifecycle } from "./bootstrap/request-lifecycle.js";

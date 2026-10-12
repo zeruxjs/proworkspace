@@ -1,25 +1,62 @@
-> [!WARNING]
-> This package is in a very early stage of development and is only published for pre-saving the name from being taken by somebody else. All current versions follow the `0.0.1-alpha.x` pattern.
+# Zeyro — test runner and assertion toolkit
 
-# Zeyro (ZyroJS Library)
+Zeyro is a dependency-light test library for ZeruxJS, ZyroJS and ordinary JavaScript/TypeScript packages. It is **not** the ZyroJS UI runtime. The new API is modular, and existing `describe`, `test`, `expect` and `runTests` entry points remain available.
 
-**Zeyro** is the distribution package for the **ZyroJS Library**—a modern, high-performance Node.js library for building scalable applications.
+## Writing tests
 
-## 🧬 The Hybrid Approach
+```ts
+import { describe, test, expect, beforeEach, runTests, fn } from 'zeyro';
 
-ZyroJS brings together the best features from established frameworks into a single, unified developer experience:
-- **React-like Logic**: Familiar component structures and hook-based state management.
-- **Vue-inspired Templates**: Clean, intuitive template syntax that stays close to HTML.
+describe('cart', () => {
+  beforeEach(() => { /* reset fixture */ });
+  test('adds items', () => expect([1, 2]).toHaveLength(2));
+  test.each([1, 2, 3])('supports count %#', value => expect(value).toBeGreaterThan(0));
+  test.withOptions('network', { timeoutMs: 3000, retries: 1 }, async () => {
+    await expect(Promise.resolve('ok')).toResolve();
+  });
+});
 
-## ✨ Core Features
+const summary = await runTests({ throwOnFailure: true });
+```
 
-| Feature | Description |
-| :--- | :--- |
-| **State & Hooks** | Hooks and WordPress-inspired actions/filters. |
-| **Routing** | Nested views, dynamic parameters, and SSR support. |
-| **Forms & Validation** | Declarative validators built into the engine. |
-| **Optimized Rendering** | SSR support with intelligent asset management. |
-| **I18n & Animations** | Native internationalization and animation primitives. |
+Suite-scoped `beforeAll`, `afterAll`, `beforeEach`, and `afterEach` hooks execute deterministically. Supports `test.only`, `test.skip`, `describe.only`, `describe.skip`, timeout/retry limits, fail-fast `bail`, `forbidOnly`, filtering, and callback result reporting. `createRunner()` creates an independent test registry that avoids cross-project global state.
 
----
-Part of the ZeruxJS ecosystem.
+Assertions include `toBe`, circular-safe `toEqual`, `.not`, `toContain`, `toMatch`, `toHaveLength`, `toHaveProperty`, `toThrow`, `toReject` and `toResolve`. `fn`, `spyOn`, and `restoreAllMocks` supply lightweight spies. `waitFor` polls asynchronous conditions with an optional AbortSignal.
+
+## CLI
+
+Build first, then run `.test.js`, `.spec.js`, `.test.mjs`, or `.spec.mjs` files:
+
+```sh
+npm run build
+node dist/bin/cli.js --reporter pretty
+node dist/bin/cli.js --match "cart" --reporter tap
+node dist/bin/cli.js --config zeyro.config.json --reporter json
+```
+
+Example JSON configuration:
+
+```json
+{
+  "root": ".",
+  "files": ["tests/**/*.test.mjs"],
+  "timeoutMs": 5000,
+  "retries": 1,
+  "bail": false,
+  "allowOnly": false,
+  "reporter": "pretty"
+}
+```
+
+The CLI has zero mandatory browser/test-runner dependencies. It imports runnable JavaScript test files; TypeScript test files must be transpiled or run through a separately configured TypeScript loader. JSON and TAP output are supported. Modules exported by `zeyro/jsdom` and `zeyro/playwright` are **optional adapters**; the environment packages must be separately installed if those features are used. Vitest-shaped helpers do not replace Vitest's full mocking engine.
+
+### Important limitations
+
+Timeouts prevent the runner from waiting forever but cannot forcibly cancel an arbitrary test promise. Browser adapters require an installed browser/DOM environment; no native browser or Playwright automation is bundled. This is a focused foundation rather than a fully compatible replacement for Jest, Vitest, or Playwright.
+
+## Verification
+
+```sh
+npm run build
+node --test test/*.test.mjs
+```

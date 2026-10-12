@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type {
     AlterTableOperation,
@@ -48,12 +49,14 @@ interface ConnectionState {
  * @returns Imported connector module namespace.
  */
 const importConnectorPackage = async (packageName: string): Promise<Record<string, unknown>> => {
-    try {
-        const appRequire = createRequire(path.join(process.cwd(), "package.json"));
-        return await import(appRequire.resolve(packageName)) as Record<string, unknown>;
-    } catch {
-        return await import(packageName) as Record<string, unknown>;
+    if (!/^(?:@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*|[a-z0-9][a-z0-9._-]*)(?:\/[a-z0-9][a-z0-9._/-]*)?$/i.test(packageName) || packageName.includes("..")) {
+        throw createDatabaseError({ code: "INVALID_CONNECTOR", message: "Database connector must be a package specifier" });
     }
+    const appRequire = createRequire(path.join(process.cwd(), "package.json"));
+    let resolved: string | undefined;
+    try { resolved = appRequire.resolve(packageName); }
+    catch { /* Workspaces can resolve dependencies relative to their own package. */ }
+    return await import(resolved ? pathToFileURL(resolved).href : packageName) as Record<string, unknown>;
 };
 
 /**
@@ -66,6 +69,8 @@ class DatabaseManagerImpl implements DatabaseManager {
     public readonly connectionSlugs: string[];
 
     readonly #connections: Map<string, ConnectionState>;
+    #closed = false;
+    #closing?: Promise<void>;
 
     constructor(
         defaultConnectionSlug: string,
@@ -235,6 +240,7 @@ class DatabaseManagerImpl implements DatabaseManager {
     }
 
     #getConnectionState(slug: string): ConnectionState {
+        if (this.#closed) throw createDatabaseError({ code: "MANAGER_CLOSED", message: "Database manager has been disconnected" });
         const state = this.#connections.get(slug);
         if (!state) {
             throw createDatabaseError({
@@ -258,6 +264,19 @@ class DatabaseManagerImpl implements DatabaseManager {
             ...operation,
             connection: operation.connection ?? slug
         };
+    }
+
+    async disconnect(): Promise<void> {
+        if (this.#closing) return this.#closing;
+        this.#closed = true;
+        this.#closing = (async () => {
+            const failures: unknown[] = [];
+            for (const { connector } of [...this.#connections.values()].reverse()) {
+                try { await connector.disconnect?.(); } catch (error) { failures.push(error); }
+            }
+            if (failures.length) throw new AggregateError(failures, "One or more database connectors failed to disconnect");
+        })();
+        return this.#closing;
     }
 
     #dispatch(operation: QueryOperation): MaybePromise<DatabaseResult> {
@@ -293,22 +312,22 @@ export const createDatabaseManager = async (
     const normalized = normalizeManagerConfig(config);
     const states = new Map<string, ConnectionState>();
 
-    for (const connection of normalized.connections) {
-        const imported = await importConnectorPackage(connection.connector);
-        const factory = extractConnectorFactory(imported as Record<string, unknown>);
-        const connector = await factory(connection.options, connection);
-
-        if (connector.connect) {
-            await connector.connect();
+    try {
+        for (const connection of normalized.connections) {
+            const imported = await importConnectorPackage(connection.connector);
+            const factory = extractConnectorFactory(imported as Record<string, unknown>);
+            const connector = await factory(connection.options, connection);
+            try { await connector.connect?.(); }
+            catch (error) { try { await connector.disconnect?.(); } catch { /* preserve connect error */ } throw error; }
+            states.set(connection.slug, { config: connection, connector });
         }
-
-        states.set(connection.slug, {
-            config: connection,
-            connector
-        });
+        return new DatabaseManagerImpl(normalized.defaultSlug, states);
+    } catch (error) {
+        for (const { connector } of [...states.values()].reverse()) {
+            try { await connector.disconnect?.(); } catch { /* preserve initial error */ }
+        }
+        throw error;
     }
-
-    return new DatabaseManagerImpl(normalized.defaultSlug, states);
 };
 
 /**

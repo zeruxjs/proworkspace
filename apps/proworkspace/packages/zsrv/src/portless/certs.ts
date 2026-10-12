@@ -170,7 +170,7 @@ function generateCA(stateDir: string): { certPath: string; keyPath: string } {
  * Generate a server certificate signed by the local CA.
  * Covers localhost and *.localhost via Subject Alternative Names.
  */
-function generateServerCert(stateDir: string): { certPath: string; keyPath: string } {
+function generateServerCert(stateDir: string, tld = 'localhost'): { certPath: string; keyPath: string } {
   const caKeyPath = path.join(stateDir, CA_KEY_FILE);
   const caCertPath = path.join(stateDir, CA_CERT_FILE);
   const serverKeyPath = path.join(stateDir, SERVER_KEY_FILE);
@@ -178,11 +178,12 @@ function generateServerCert(stateDir: string): { certPath: string; keyPath: stri
   const csrPath = path.join(stateDir, "server.csr");
   const extPath = path.join(stateDir, "server-ext.cnf");
 
+  validateSNIServername(tld, tld);
   // Generate server private key
   openssl(["ecparam", "-genkey", "-name", "prime256v1", "-noout", "-out", serverKeyPath]);
 
   // Generate CSR
-  openssl(["req", "-new", "-key", serverKeyPath, "-out", csrPath, "-subj", "/CN=localhost"]);
+  openssl(["req", "-new", "-key", serverKeyPath, "-out", csrPath, "-subj", `/CN=${tld}`]);
 
   // Write extension config for SANs
   fs.writeFileSync(
@@ -192,7 +193,7 @@ function generateServerCert(stateDir: string): { certPath: string; keyPath: stri
       "basicConstraints=CA:FALSE",
       "keyUsage=digitalSignature,keyEncipherment",
       "extendedKeyUsage=serverAuth",
-      "subjectAltName=DNS:localhost,DNS:*.localhost",
+      `subjectAltName=DNS:${tld},DNS:*.${tld}`,
     ].join("\n") + "\n"
   );
 
@@ -241,7 +242,7 @@ function generateServerCert(stateDir: string): { certPath: string; keyPath: stri
  * Generates the CA if missing. Regenerates the server cert if expired.
  * Returns paths to the server cert and key.
  */
-export function ensureCerts(stateDir: string): {
+export function ensureCerts(stateDir: string, tld = 'localhost'): {
   certPath: string;
   keyPath: string;
   caPath: string;
@@ -271,9 +272,10 @@ export function ensureCerts(stateDir: string): {
     !fileExists(serverCertPath) ||
     !fileExists(serverKeyPath) ||
     !isCertValid(serverCertPath) ||
-    !isCertSignatureStrong(serverCertPath)
+    !isCertSignatureStrong(serverCertPath) ||
+    !new crypto.X509Certificate(fs.readFileSync(serverCertPath)).checkHost(tld)
   ) {
-    generateServerCert(stateDir);
+    generateServerCert(stateDir, tld);
   }
 
   return {
@@ -465,7 +467,20 @@ const HOST_CERTS_DIR = "host-certs";
  * Replaces dots with underscores and removes non-alphanumeric chars (except - and _).
  */
 function sanitizeHostForFilename(hostname: string): string {
-  return hostname.replace(/\./g, "_").replace(/[^a-z0-9_-]/gi, "");
+  // A digest avoids ambiguities such as a.b vs a_b and filename collisions.
+  return crypto.createHash('sha256').update(hostname).digest('hex');
+}
+
+/** Certificate issuance is limited to the configured local namespace. */
+export function validateSNIServername(servername: string, tld: string): string {
+  const name = servername.toLowerCase().replace(/\.$/, '');
+  const suffix = tld.toLowerCase().replace(/\.$/, '');
+  const validLabels = (host: string) => host.length > 0 && host.length <= 253 &&
+    host.split('.').every(label => label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+  if (!validLabels(name) || !validLabels(suffix) || (name !== suffix && !name.endsWith(`.${suffix}`))) {
+    throw new TypeError('TLS server name is outside the configured local namespace');
+  }
+  return name;
 }
 
 /**
@@ -484,9 +499,11 @@ async function generateHostCertAsync(
   const hostDir = path.join(stateDir, HOST_CERTS_DIR);
 
   if (!fs.existsSync(hostDir)) {
-    await fs.promises.mkdir(hostDir, { recursive: true, mode: 0o755 });
+    await fs.promises.mkdir(hostDir, { recursive: true, mode: 0o700 });
     fixOwnership(hostDir);
   }
+  const hostDirStat = await fs.promises.lstat(hostDir);
+  if (!hostDirStat.isDirectory() || hostDirStat.isSymbolicLink()) throw new Error('Unsafe host-certificate directory');
 
   const safeName = sanitizeHostForFilename(hostname);
   const keyPath = path.join(hostDir, `${safeName}-key.pem`);
@@ -494,20 +511,23 @@ async function generateHostCertAsync(
   const csrPath = path.join(hostDir, `${safeName}.csr`);
   const extPath = path.join(hostDir, `${safeName}-ext.cnf`);
 
+  // Do not allow pre-existing symlinks to redirect certificate/key writes.
+  for (const candidate of [keyPath, certPath, csrPath, extPath]) {
+    try {
+      if ((await fs.promises.lstat(candidate)).isSymbolicLink()) throw new Error('Unsafe certificate file symlink');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+
   // Generate key
   await opensslAsync(["ecparam", "-genkey", "-name", "prime256v1", "-noout", "-out", keyPath]);
 
   // Generate CSR
   await opensslAsync(["req", "-new", "-key", keyPath, "-out", csrPath, "-subj", `/CN=${hostname}`]);
 
-  // Build SAN list: include the exact hostname plus a wildcard at the same level
-  // e.g., for "chat.json-render2.localhost" -> also add "*.json-render2.localhost"
+  // Scope every dynamically issued certificate to exactly one hostname.
   const sans = [`DNS:${hostname}`];
-  const parts = hostname.split(".");
-  if (parts.length >= 2) {
-    // Add a wildcard for sibling subdomains at the same level
-    sans.push(`DNS:*.${parts.slice(1).join(".")}`);
-  }
 
   await fs.promises.writeFile(
     extPath,
@@ -580,11 +600,20 @@ export function createSNICallback(
 ): (servername: string, cb: (err: Error | null, ctx?: tls.SecureContext) => void) => void {
   const cache = new Map<string, tls.SecureContext>();
   const pending = new Map<string, Promise<tls.SecureContext>>();
+  const CACHE_LIMIT = 128;
+  const MAX_IN_FLIGHT = 8;
+  const saveCache = (name: string, context: tls.SecureContext) => {
+    cache.delete(name);
+    cache.set(name, context);
+    if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+  };
 
   // Pre-cache the default context for the bare TLD itself
   const defaultCtx = tls.createSecureContext({ cert: defaultCert, key: defaultKey });
 
   return (servername: string, cb: (err: Error | null, ctx?: tls.SecureContext) => void) => {
+    try { servername = validateSNIServername(servername, tld); }
+    catch (error) { cb(error as Error); return; }
     // The bare TLD (e.g. "localhost" or "test") uses the default cert.
     // All subdomains need a cert with an exact SAN entry.
     // For .localhost: RFC 2606 §2 designates it as a reserved TLD, so
@@ -615,11 +644,13 @@ export function createSNICallback(
       isCertSignatureStrong(certPath)
     ) {
       try {
+        const certificate = new crypto.X509Certificate(fs.readFileSync(certPath));
+        if (!certificate.checkHost(servername)) throw new Error('Certificate SAN does not match request');
         const ctx = tls.createSecureContext({
           cert: fs.readFileSync(certPath),
           key: fs.readFileSync(keyPath),
         });
-        cache.set(servername, ctx);
+        saveCache(servername, ctx);
         cb(null, ctx);
         return;
       } catch {
@@ -636,6 +667,11 @@ export function createSNICallback(
       return;
     }
 
+    // A handshake storm must not spawn an unbounded number of openssl jobs.
+    if (pending.size >= MAX_IN_FLIGHT) {
+      cb(new Error('Certificate generation concurrency limit reached'));
+      return;
+    }
     // Generate a new cert for this hostname asynchronously
     const promise = generateHostCertAsync(stateDir, servername).then(async (generated) => {
       const [cert, key] = await Promise.all([
@@ -649,7 +685,7 @@ export function createSNICallback(
 
     promise
       .then((ctx) => {
-        cache.set(servername, ctx);
+        saveCache(servername, ctx);
         pending.delete(servername);
         cb(null, ctx);
       })

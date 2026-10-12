@@ -646,8 +646,8 @@ const normalizeResult = (
     params: unknown[],
     native: unknown
 ): DatabaseResult => {
-    const result = native as
-        | { rows?: unknown[]; rowCount?: number; affectedRows?: number; insertId?: number | string; changes?: number; lastInsertRowid?: number; }
+    const result = (native ?? {}) as
+        | { rows?: unknown[]; rowCount?: number; affectedRows?: number; insertId?: number | string; changes?: number; lastInsertRowid?: number | bigint; }
         | unknown[];
 
     if (Array.isArray(result)) {
@@ -672,11 +672,13 @@ const normalizeResult = (
         rows: result.rows,
         rowCount: result.rowCount ?? result.rows?.length,
         affectedCount: result.affectedRows ?? result.changes,
-        insertedIds: result.insertId !== undefined
-            ? [result.insertId]
-            : result.lastInsertRowid !== undefined
-                ? [result.lastInsertRowid]
-                : undefined,
+        insertedIds: operation.op === "insert"
+            ? (result.insertId !== undefined
+                ? [result.insertId]
+                : result.lastInsertRowid !== undefined
+                    ? [typeof result.lastInsertRowid === "bigint" ? result.lastInsertRowid.toString() : result.lastInsertRowid]
+                    : undefined)
+            : undefined,
         native,
         query: statement,
         params

@@ -12,14 +12,10 @@ const MARKER_END = "# portless-end";
 
 /**
  * Read the current /etc/hosts file content.
- * Returns empty string if the file cannot be read.
+ * Fails closed on read errors so sync cannot overwrite existing entries.
  */
 function readHostsFile(): string {
-  try {
-    return fs.readFileSync(HOSTS_PATH, "utf-8");
-  } catch {
-    return "";
-  }
+  return fs.readFileSync(HOSTS_PATH, "utf-8");
 }
 
 /**
@@ -45,7 +41,12 @@ export function extractManagedBlock(content: string): string[] {
 export function removeBlock(content: string): string {
   const startIdx = content.indexOf(MARKER_START);
   const endIdx = content.indexOf(MARKER_END);
-  if (startIdx === -1 || endIdx === -1) return content;
+  if (startIdx === -1 && endIdx === -1) return content;
+  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx ||
+      content.indexOf(MARKER_START, startIdx + MARKER_START.length) !== -1 ||
+      content.indexOf(MARKER_END, endIdx + MARKER_END.length) !== -1) {
+    throw new Error('Malformed portless managed hosts block');
+  }
   const before = content.slice(0, startIdx);
   const after = content.slice(endIdx + MARKER_END.length);
   return (before + after).replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
@@ -56,7 +57,18 @@ export function removeBlock(content: string): string {
  */
 export function buildBlock(hostnames: string[]): string {
   if (hostnames.length === 0) return "";
-  const entries = hostnames.map((h) => `127.0.0.1 ${h}`).join("\n");
+  const seen = new Set<string>();
+  const validated = hostnames.map(host => {
+    if (typeof host !== 'string' || host.length > 253 ||
+        !host.split('.').every(label => label.length > 0 && label.length <= 63 &&
+          /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+      throw new TypeError('Invalid managed hostname');
+    }
+    if (seen.has(host)) throw new TypeError('Duplicate managed hostname');
+    seen.add(host);
+    return host;
+  });
+  const entries = validated.map((h) => `127.0.0.1 ${h}`).join("\n");
   return `${MARKER_START}\n${entries}\n${MARKER_END}`;
 }
 
@@ -101,7 +113,8 @@ export function cleanHostsFile(): boolean {
  * Return the current portless-managed hostnames from /etc/hosts.
  */
 export function getManagedHostnames(): string[] {
-  const content = readHostsFile();
+  let content: string;
+  try { content = readHostsFile(); } catch { return []; }
   return extractManagedBlock(content)
     .map((line) => {
       const parts = line.split(/\s+/);

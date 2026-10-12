@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { URL } from "node:url";
+import { readLimitedBody, localDevHost } from "./request.js";
 
 import { buildContentSecurityPolicy } from "@zeruxjs/security";
 
@@ -47,11 +48,7 @@ const normalizeAncestorOrigin = (value?: string | null) => {
     return null;
 };
 
-const isLocalHost = (host: string) => {
-    const hostname = (() => { try { return new URL(`http://${host}`).hostname.toLowerCase().replace(/^\[|\]$/g, ""); } catch { return ""; } })();
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".localhost")) return true;
-    return false;
-};
+const isLocalHost = localDevHost;
 
 const matchWildcard = (pattern: string, host: string) => {
     const p = pattern.toLowerCase();
@@ -127,25 +124,7 @@ const buildFrameAwarePolicy = (nonce: string, req?: IncomingMessage, registratio
     `frame-ancestors ${getFrameAncestors(req, registration).join(" ")}`
 );
 
-const MAX_DEV_BODY_BYTES = 1024 * 1024;
-const readRequestBody = async (req: IncomingMessage) =>
-    new Promise<Buffer>((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        req.on("data", (chunk: Buffer | string) => {
-            const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            size += data.length;
-            if (size > MAX_DEV_BODY_BYTES) {
-                reject(Object.assign(new Error("Devtools request body exceeds 1 MiB"), { statusCode: 413 }));
-                req.pause();
-                return;
-            }
-            chunks.push(data);
-        });
-        req.on("end", () => resolve(Buffer.concat(chunks)));
-        req.on("error", reject);
-        req.on("aborted", () => reject(new Error("Request aborted")));
-    });
+const readRequestBody = readLimitedBody;
 
 const toJsonBody = (body: Buffer) => {
     try {
@@ -280,12 +259,22 @@ const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     const globalEventsMatch = pathname.match(/^\/__([^/]+)\/events$/);
     if (globalEventsMatch && req.method === "POST") {
+        // This internal publisher is used by the framework over loopback. A
+        // remote client must not be able to forge lifecycle/update events.
+        if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress || '')) {
+            sendJson(res, { message: "Local publisher required" }, 403);
+            return;
+        }
         const body = toJsonBody(await readRequestBody(req));
         if (typeof body.app !== "string" || typeof body.type !== "string") {
             sendJson(res, { message: "Missing app name" }, 400);
             return;
         }
 
+        if (!getRegistryApp(body.app) || (body.serviceName ?? "zdev") !== globalEventsMatch[1]) {
+            sendJson(res, { message: "Unknown app or service" }, 404);
+            return;
+        }
         broadcastEvent(body.app, body as unknown as SharedDevEvent);
         sendJson(res, { ok: true });
         return;
@@ -312,7 +301,8 @@ const handleHttpRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 updatedAt: snapshot.updatedAt,
                 routes: snapshot.routes,
                 clientEvents: snapshot.clientEvents,
-                logs: snapshot.logs
+                logs: snapshot.logs,
+                reload: snapshot.reload
             },
             identifier
         });
@@ -482,7 +472,9 @@ export const ensureSharedDevServer = async (preferredPort?: number) => {
 
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
-        server.listen(port, "0.0.0.0", () => resolve());
+        // Devtools are private by default. Public access requires deliberate opt-in
+        // together with an upstream authentication/access-control policy.
+        server.listen(port, process.env.ZDEV_BIND_HOST || "127.0.0.1", () => resolve());
     });
 
     writeRegistry({
@@ -542,6 +534,7 @@ export const publishSharedDevEvent = async (port: number, event: SharedDevEvent)
         );
 
         request.on("error", () => resolve());
+        request.setTimeout(3000, () => request.destroy(new Error('Devtools event timeout')));
         request.write(payload);
         request.end();
     });

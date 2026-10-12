@@ -1,5 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
+import { createMemoryCacheHelper } from "./memory.js";
+import type { MemoryCacheOptions } from "./memory.js";
 
 import type {
     CacheHelper,
@@ -41,6 +43,7 @@ class CacheManagerImpl implements CacheManager {
     public readonly prefix?: string;
     public readonly defaultTtlSeconds?: number;
     readonly #adapter: CacheHelper;
+    readonly #pending = new Map<string, Promise<CacheValue>>();
 
     constructor(config: Required<Pick<CacheManagerConfig, "helper">> & CacheManagerConfig, adapter: CacheHelper) {
         this.helper = config.helper;
@@ -57,6 +60,7 @@ class CacheManagerImpl implements CacheManager {
         this.#assertTtl(options.ttlSeconds);
 
         return this.#adapter.set(this.#key(key), value, {
+            ...options,
             ttlSeconds: options.ttlSeconds ?? this.defaultTtlSeconds
         });
     }
@@ -70,18 +74,31 @@ class CacheManagerImpl implements CacheManager {
     }
 
     clear(): MaybePromise<void> {
-        return this.#adapter.clear();
+        if (!this.prefix) return this.#adapter.clear();
+        if (!this.#adapter.clearPrefix) {
+            throw createCacheError({ code: "NAMESPACE_CLEAR_UNSUPPORTED", message: "Helper cannot safely clear a namespace" });
+        }
+        return this.#adapter.clearPrefix(this.prefix);
     }
 
     getMany(keys: string[]): MaybePromise<Record<string, CacheValue | undefined>> {
-        return this.#adapter.getMany(keys.map((key) => this.#key(key)));
+        const namespaced = keys.map((key) => this.#key(key));
+        const restore = (result: Record<string, CacheValue | undefined>) => {
+            const mapped: Record<string, CacheValue | undefined> = Object.create(null);
+            keys.forEach((key, index) => { Object.defineProperty(mapped, key, { value: result[namespaced[index]], enumerable: true, configurable: true, writable: true }); });
+            return mapped;
+        };
+        const result = this.#adapter.getMany(namespaced);
+        return result && typeof (result as Promise<unknown>).then === "function"
+            ? Promise.resolve(result).then(restore)
+            : restore(result as Record<string, CacheValue | undefined>);
     }
 
     setMany(values: Record<string, CacheValue>, options: CacheSetOptions = {}): MaybePromise<void> {
         this.#assertTtl(options.ttlSeconds);
         return this.#adapter.setMany(
             Object.fromEntries(Object.entries(values).map(([key, value]) => [this.#key(key), value])),
-            { ttlSeconds: options.ttlSeconds ?? this.defaultTtlSeconds }
+            { ...options, ttlSeconds: options.ttlSeconds ?? this.defaultTtlSeconds }
         );
     }
 
@@ -105,7 +122,26 @@ class CacheManagerImpl implements CacheManager {
     }
 
     close(): MaybePromise<void> {
+        this.#pending.clear();
         return this.#adapter.close?.();
+    }
+
+    /** Coalesce concurrent misses within this manager; cache only successful producer results. */
+    async remember(key: string, producer: () => MaybePromise<CacheValue>, options: CacheSetOptions = {}): Promise<CacheValue> {
+        const scoped = this.#key(key);
+        if (typeof producer !== "function") throw new TypeError("Cache producer must be a function");
+        const existing = await this.get(key);
+        if (existing !== undefined) return existing;
+        const active = this.#pending.get(scoped);
+        if (active) return active;
+        const job = (async () => {
+            const value = await producer();
+            await this.set(key, value, options);
+            return value;
+        })();
+        this.#pending.set(scoped, job);
+        try { return await job; }
+        finally { if (this.#pending.get(scoped) === job) this.#pending.delete(scoped); }
     }
 
     native(): unknown {
@@ -133,10 +169,10 @@ class CacheManagerImpl implements CacheManager {
     }
 
     #assertAmount(amount: number): void {
-        if (!Number.isFinite(amount) || amount < 0) {
+        if (!Number.isSafeInteger(amount) || amount < 0) {
             throw createCacheError({
                 code: "INVALID_AMOUNT",
-                message: "Cache increment and decrement amounts must be non-negative finite numbers"
+                message: "Cache increment and decrement amounts must be non-negative safe integers"
             });
         }
     }
@@ -153,6 +189,9 @@ let activeManager: CacheManager | null = null;
  */
 export const createCacheManager = async (config: CacheManagerConfig): Promise<CacheManager> => {
     const normalized = normalizeCacheConfig(config);
+    if (normalized.helper === "memory" || normalized.helper === "@zeruxjs/cache/memory") {
+        return new CacheManagerImpl(normalized, createMemoryCacheHelper(normalized.options as MemoryCacheOptions));
+    }
     const imported = await importHelperPackage(normalized.helper);
     const factory = extractCacheHelperFactory(imported);
     const adapter = await factory(normalized.options ?? {});
@@ -198,4 +237,10 @@ export const configureCacheManager = async (config: CacheManagerConfig): Promise
     const manager = await createCacheManager(config);
     setActiveCacheManager(manager);
     return manager;
+};
+
+/** Construct a manager from an existing adapter (useful for memory and test adapters). */
+export const createCacheManagerWithHelper = (helper: CacheHelper, config: Omit<CacheManagerConfig, "helper"> & { helper?: string } = {}): CacheManager => {
+    const normalized = normalizeCacheConfig({ ...config, helper: config.helper ?? "custom" });
+    return new CacheManagerImpl(normalized, helper);
 };

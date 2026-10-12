@@ -8,6 +8,7 @@ import type {
 import {
     configureCacheManager,
     createCacheManager,
+    createCacheManagerWithHelper,
     getActiveCacheManager,
     setActiveCacheManager
 } from "./manager.js";
@@ -64,6 +65,9 @@ export const cache: CacheManager = {
     close(): MaybePromise<void> {
         return getActiveCacheManager().close();
     },
+    remember(key: string, producer: () => MaybePromise<CacheValue>, options?: CacheSetOptions) {
+        return getActiveCacheManager().remember(key, producer, options);
+    },
     native(): unknown {
         return getActiveCacheManager().native();
     }
@@ -82,6 +86,8 @@ export const deleteMany = (keys: string[]) => getActiveCacheManager().deleteMany
 export const increment = (key: string, amount?: number) => getActiveCacheManager().increment(key, amount);
 export const decrement = (key: string, amount?: number) => getActiveCacheManager().decrement(key, amount);
 export const touch = (key: string, ttlSeconds: number) => getActiveCacheManager().touch(key, ttlSeconds);
+export const remember = (key: string, producer: () => MaybePromise<CacheValue>, options?: CacheSetOptions) =>
+    getActiveCacheManager().remember(key, producer, options);
 export const native = () => getActiveCacheManager().native();
 
 export { remove as delete };
@@ -89,6 +95,7 @@ export {
     configureCacheManager,
     createCacheError,
     createCacheManager,
+    createCacheManagerWithHelper,
     getActiveCacheManager,
     setActiveCacheManager
 };
@@ -105,3 +112,6 @@ export type {
 } from "./types.js";
 
 export default cache;
+
+export { createMemoryCacheHelper } from "./memory.js";
+export type { MemoryCacheOptions, MemoryCacheStats } from "./memory.js";

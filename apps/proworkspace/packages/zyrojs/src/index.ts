@@ -7,3 +7,4 @@
 export * from "./reactivity/index.js";
 export * from "./dom/index.js";
 export * from "./hook/index.js";
+export * from './network/index.js';

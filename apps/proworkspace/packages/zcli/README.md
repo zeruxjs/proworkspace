@@ -1,65 +1,67 @@
-> [!WARNING]
-> This package is in a very early stage of development and is only published for pre-saving the name from being taken by somebody else. All current versions follow the `0.0.1-alpha.x` pattern.
+# ZCLI — composable CLI toolkit
 
-# zcli
+Command registry and explicit plugin discovery for ZeruxJS, ZyroJS, and other JavaScript applications. **This is an evolving 0.x package.** Commands can be shared under a common keyword without requiring plugins to mutate a global command map or immediately call `process.exit()`.
 
+## Programmatic command registry
 
-The extensible Command Line Interface toolkit for **ZeruxJS**. `zcli` provides a unified way to define, discover, and execute commands across the framework and its ecosystem.
+```ts
+import { CommandRegistry } from 'zcli';
 
-## Features
-
-- **Automatic Discovery**: Automatically scans `node_modules` for ZeruxJS plugins and loads their commands.
-- **Universal Keyword Shared**: Enables multiple packages to share a single CLI entry point (like `zerux`).
-- **Rich Formatting**: Built-in support for `chalk` for beautiful, semantic terminal output.
-- **Interactive Help**: Automatically generates help documentation and argument lists for all registered commands.
-- **ESM Native**: Designed from the ground up for modern ECMAScript Modules.
-
-## Usage
-
-### Registering a Command
-
-```typescript
-import { cli } from 'zcli';
-
-cli.addCommand('zerux', 'hello', (args) => {
-    const name = args.namedArgs.name || 'World';
-    console.log(cli.color.green(`Hello, ${name}!`));
+const commands = new CommandRegistry();
+commands.registerKey('zerux', 'ZeruxJS commands');
+commands.register('zerux', 'build', async (args, context) => {
+  console.log(context.options?.mode);
 }, {
-    description: 'Greet someone from the CLI',
-    help: [
-        { arg: '--name', 'its description': 'The name to greet' }
-    ]
+  aliases: ['b'],
+  description: 'Build application',
+  flags: {
+    mode: { type: 'string', choices: ['dev', 'prod'], default: 'prod' },
+    workers: { type: 'number', default: 2 },
+    verbose: { type: 'boolean', alias: 'v' }
+  }
 });
+
+const result = await commands.dispatch('zerux', ['build', '--mode', 'prod'], console.log);
+process.exitCode = result.exitCode;
 ```
 
-### Argument Parsing
+Supports named/positional arguments, repeated flags, aliases, `--help`, `--docs`, `--completion`, strict typed flags, required/default/choice validation, and reusable command definitions. No handlers are executed during registration.
 
-`zcli` handles complex argument parsing out of the box:
+## Shared commands from multiple packages
 
-```bash
-# Positional args
-zerux build ./src
-
-# Named args
-zerux dev --port=3000 --host 0.0.0.0
-
-# Boolean flags
-zerux test --silent
-```
-
-## Plugin System
-
-Any package can add functionality to the `zerux` CLI by defining a `zerux` field in its `package.json` pointing to an initialization script. `zcli` will automatically import these scripts during startup.
+**Only explicitly configured plugins are loaded.** Declare allowlisted plugins in the application's `package.json`:
 
 ```json
 {
-  "name": "my-zerux-plugin",
-  "zerux": "./dist/cli-init.js"
+  "zeruxCli": { "plugins": ["my-zerux-plugin", "@example/zerux-cli"] }
 }
 ```
 
----
+Each installed plugin has a `zerux` entry in its own manifest:
 
-<p align="center">
-  Empowering the ZeruxJS Developer Experience.
-</p>
+```json
+{ "name": "my-zerux-plugin", "type": "module", "zerux": "./dist/plugin.js" }
+```
+
+Its entry exports a `register` function:
+
+```js
+export function register({ commands }) {
+  commands.register('zerux', 'lint-custom', () => console.log('Linting'));
+}
+```
+
+Load via `await loadConfiguredPlugins(registry, projectRoot)` or `await loadPlugins(['my-zerux-plugin'], registry, projectRoot)`.
+
+Plugins are **trusted executable code**, not sandboxed extensions. Entry paths are checked using canonical filesystem paths and cannot escape their owning package through symlinks or traversal. Plugins are no longer automatically loaded from every installed `node_modules` package.
+
+## Existing ZeruxJS compatibility
+
+`import { cli } from 'zcli'` still exposes `cli.addKey(keyword, {func,description})` and `cli.addCommand(keyword, name, handler, options)` with the same parsed argument structure. Legacy handlers no longer cause an immediate `process.exit()`; set `process.exitCode` if an explicit exit status is needed. Asynchronous development servers continue to run while they have active handles.
+
+## Validation
+
+```sh
+npm run build
+node --test test/*.test.mjs
+```

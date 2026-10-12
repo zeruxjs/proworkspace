@@ -16,12 +16,21 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test test/*.test.cjs"
   },
   "dependencies": {
     "@zeruxjs/db": "*"
   },
   "keywords": [
     "Helper for @zerux/db for MongoDB Database."
-  ]
+  ],
+  "peerDependencies": {
+    "mongodb": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "mongodb": {
+      "optional": true
+    }
+  }
 }

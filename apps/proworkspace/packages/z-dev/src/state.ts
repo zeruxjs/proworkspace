@@ -7,7 +7,18 @@ import type { SharedDevRegistration, SharedDevSnapshot } from "./types.js";
 export const readTailLines = (filePath: string | null, limit = LOG_LINE_LIMIT) => {
     if (!filePath || !fs.existsSync(filePath)) return [];
 
-    const content = fs.readFileSync(filePath, "utf8");
+    // Keep memory bounded even when the application's log file is very large.
+    const fd = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+    let content: string;
+    try {
+        const info = fs.fstatSync(fd);
+        if (!info.isFile()) throw new Error('Unsafe devtools log file');
+        const length = Math.min(info.size, 256 * 1024);
+        const buffer = Buffer.alloc(length);
+        const bytes = fs.readSync(fd, buffer, 0, length, info.size - length);
+        content = buffer.subarray(0, bytes).toString('utf8');
+        if (info.size > length) content = content.slice(content.indexOf('\n') + 1);
+    } finally { fs.closeSync(fd); }
     return content
         .split(/\r?\n/)
         .filter(Boolean)
@@ -60,6 +71,9 @@ export const normalizeSnapshot = (
             ])]
         },
         clientEvents,
-        logs: readTailLines(app.logFilePath)
+        logs: readTailLines(app.logFilePath),
+        reload: snapshot.reload && typeof snapshot.reload === 'object' && !Array.isArray(snapshot.reload)
+            ? snapshot.reload as SharedDevSnapshot['reload']
+            : undefined
     };
 };

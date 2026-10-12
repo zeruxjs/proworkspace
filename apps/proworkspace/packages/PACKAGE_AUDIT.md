@@ -63,3 +63,6 @@ The workspace includes the following packages; the status means source inventori
 5. Perform end-to-end browser and Node testing of ZeruxJS, ZyroJS, Zuix, the devtools and adapters.
 6. Audit `zwatch` daemon socket ownership, recovery and event backpressure; audit all package public APIs for version compatibility.
 7. Run dependency and license audits, SAST, fuzz tests, and load tests before claiming production certification.
+
+> **Section 31 migration note:** `@zeruxjs/mcp` has been retired; its tool/resource
+> APIs now live in `zsrv/src/protocols/mcp` and are exported from `zsrv`.

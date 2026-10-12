@@ -10,6 +10,9 @@ export type CacheValue = CachePrimitive | CacheValue[] | { [key: string]: CacheV
 
 export interface CacheSetOptions {
     ttlSeconds?: number;
+    /** Atomic adapter-level conditional write, where supported. */
+    ifAbsent?: boolean;
+    ifPresent?: boolean;
 }
 
 export interface CacheHelper {
@@ -18,6 +21,8 @@ export interface CacheHelper {
     delete(key: string): MaybePromise<boolean>;
     has(key: string): MaybePromise<boolean>;
     clear(): MaybePromise<void>;
+    /** Delete only keys under this namespace, never other application keys. */
+    clearPrefix?(prefix: string): MaybePromise<void>;
     getMany(keys: string[]): MaybePromise<Record<string, CacheValue | undefined>>;
     setMany(values: Record<string, CacheValue>, options?: CacheSetOptions): MaybePromise<void>;
     deleteMany(keys: string[]): MaybePromise<number>;
@@ -56,6 +61,7 @@ export interface CacheManager {
     touch(key: string, ttlSeconds: number): MaybePromise<boolean>;
     close(): MaybePromise<void>;
     native(): unknown;
+    remember(key: string, producer: () => MaybePromise<CacheValue>, options?: CacheSetOptions): Promise<CacheValue>;
 }
 
 export interface CacheErrorShape {

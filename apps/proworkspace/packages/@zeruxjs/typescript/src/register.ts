@@ -1,18 +1,24 @@
-import { transformSync } from "esbuild";
-import fs from "node:fs";
+import { createRequire } from 'node:module';
+import { transpileTypescriptFile } from './transform.js';
 
-export function registerTypescript() {
-    const loader = (module: any, filename: string) => {
-        const source = fs.readFileSync(filename, "utf8");
-
-        const { code } = transformSync(source, {
-            loader: "ts",
-            format: "esm",
-            target: "esnext"
-        });
-
-        module._compile(code, filename);
+/** Legacy CommonJS require() support. ESM imports use the ./loader subpath instead. */
+export function registerTypescript(options: { extensions?: string[] } = {}): () => void {
+  const req = createRequire(import.meta.url);
+  const handlers = req.extensions;
+  const extensions = options.extensions ?? ['.ts', '.tsx', '.cts'];
+  const previous = new Map<string, NodeJS.RequireExtensions[string] | undefined>();
+  for (const extension of extensions) {
+    if (!/^\.(?:ts|tsx|cts)$/.test(extension)) throw new Error(`Unsupported require extension: ${extension}`);
+    previous.set(extension, handlers[extension]);
+    handlers[extension] = (mod, filename) => {
+      const result = transpileTypescriptFile(filename, { format: 'cjs', sourceMap: false });
+      (mod as NodeModule & { _compile: (code: string, path: string) => void })._compile(result.code, filename);
     };
-
-    require.extensions[".ts"] = loader;
+  }
+  return () => {
+    for (const extension of extensions) {
+      if (previous.get(extension)) handlers[extension] = previous.get(extension)!;
+      else delete handlers[extension];
+    }
+  };
 }

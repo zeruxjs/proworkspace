@@ -1,118 +1,36 @@
-import { createClient, type RedisClientOptions, type RedisClientType } from "redis";
+import type { CacheHelperFactory } from "@zeruxjs/cache";
+import { createRedisCacheHelper } from "./helper.js";
+import type { RedisCacheClient, RedisCacheHelperOptions } from "./types.js";
+import { createIORedisCacheHelper, type IORedisCompatibleClient } from "./ioredis.js";
 
-import type {
-    CacheHelper,
-    CacheHelperFactory,
-    CacheSetOptions,
-    CacheValue
-} from "@zeruxjs/cache";
-
-export interface RedisCacheOptions extends RedisClientOptions {
-    url?: string;
-}
-
-const serialize = (value: CacheValue) => JSON.stringify(value);
-const deserialize = (value: string): CacheValue => JSON.parse(value) as CacheValue;
-const ttl = (seconds: number | undefined): number | undefined => {
-    if (seconds === undefined) return undefined;
-    if (!Number.isFinite(seconds) || seconds <= 0) throw new RangeError("Cache TTL must be a positive finite number");
-    return Math.ceil(seconds);
+/** Choose node-redis (default) or ioredis. Injected clients remain caller-owned. */
+export const createCacheHelper: CacheHelperFactory = async (rawOptions) => {
+    const options = rawOptions as RedisCacheHelperOptions & {driver?: 'redis' | 'ioredis'; url?: string};
+    const { driver = 'redis', allowFlushDb, ownClient, client, ...connectionOptions } = options;
+    if (driver !== 'redis' && driver !== 'ioredis') throw new TypeError('Unknown Redis cache driver');
+    if (driver === 'ioredis') {
+        if (client) return createIORedisCacheHelper(client as unknown as IORedisCompatibleClient, {allowFlushDb, ownClient});
+        const moduleId = 'ioredis';
+        const {default: IORedis} = await import(moduleId) as {default: new (...args: unknown[]) => IORedisCompatibleClient & {connect():Promise<void>}};
+        const {url, ...opts} = connectionOptions;
+        // Lazy connect prevents racing client startup and lets us await errors.
+        const connection = url ? new IORedis(url, {...opts,lazyConnect:true}) : new IORedis({...opts,lazyConnect:true});
+        connection.on('error', () => undefined);
+        try {await connection.connect();}
+        catch(error) {try {await connection.quit();} catch {/* startup failure */} throw error;}
+        return createIORedisCacheHelper(connection, {allowFlushDb,ownClient:true});
+    }
+    if (client) return createRedisCacheHelper(client, {allowFlushDb, ownClient});
+    const moduleId = 'redis';
+    const redis = await import(moduleId) as {createClient:(options:Record<string,unknown>)=>{on:(event:string,callback:(...args:unknown[])=>void)=>unknown;connect:()=>Promise<void>;close:()=>Promise<void>}};
+    const connection = redis.createClient(connectionOptions);
+    connection.on('error', () => undefined);
+    try {await connection.connect();}
+    catch(error) {try {await connection.close();} catch {/* startup failure */} throw error;}
+    return createRedisCacheHelper(connection as unknown as RedisCacheClient, {allowFlushDb, ownClient: true});
 };
-
-/**
- * Title: Redis client-backed cache helper
- * Description: Uses the official Redis client and exposes the common Zerux cache operations.
- * Global Variables: none
- */
-class RedisCacheHelper implements CacheHelper {
-    readonly #client: RedisClientType;
-
-    constructor(client: RedisClientType) {
-        this.#client = client;
-    }
-
-    async get(key: string): Promise<CacheValue | undefined> {
-        const value = await this.#client.get(key);
-        return value === null ? undefined : deserialize(value);
-    }
-
-    async set(key: string, value: CacheValue, options: CacheSetOptions = {}): Promise<void> {
-        await this.#client.set(key, serialize(value), ttl(options.ttlSeconds) === undefined ? {} : { EX: ttl(options.ttlSeconds)! });
-    }
-
-    async delete(key: string): Promise<boolean> {
-        return await this.#client.del(key) > 0;
-    }
-
-    async has(key: string): Promise<boolean> {
-        return await this.#client.exists(key) > 0;
-    }
-
-    async clear(): Promise<void> {
-        await this.#client.flushDb();
-    }
-
-    async getMany(keys: string[]): Promise<Record<string, CacheValue | undefined>> {
-        const values = keys.length > 0 ? await this.#client.mGet(keys) : [];
-        return Object.fromEntries(keys.map((key, index) => [
-            key,
-            values[index] === null ? undefined : deserialize(values[index] as string)
-        ]));
-    }
-
-    async setMany(values: Record<string, CacheValue>, options: CacheSetOptions = {}): Promise<void> {
-        const entries = Object.entries(values);
-        if (entries.length === 0) return;
-
-        if (ttl(options.ttlSeconds) === undefined) {
-            await this.#client.mSet(Object.fromEntries(entries.map(([key, value]) => [key, serialize(value)])));
-            return;
-        }
-
-        const multi = this.#client.multi();
-        entries.forEach(([key, value]) => {
-            multi.set(key, serialize(value), { EX: ttl(options.ttlSeconds)! });
-        });
-        await multi.exec();
-    }
-
-    async deleteMany(keys: string[]): Promise<number> {
-        return keys.length === 0 ? 0 : await this.#client.del(keys);
-    }
-
-    async increment(key: string, amount = 1): Promise<number> {
-        return this.#client.incrBy(key, amount);
-    }
-
-    async decrement(key: string, amount = 1): Promise<number> {
-        return this.#client.decrBy(key, amount);
-    }
-
-    async touch(key: string, ttlSeconds: number): Promise<boolean> {
-        return await this.#client.expire(key, ttl(ttlSeconds)!) > 0;
-    }
-
-    async close(): Promise<void> {
-        await this.#client.close();
-    }
-
-    native(): RedisClientType {
-        return this.#client;
-    }
-}
-
-/**
- * Title: Redis helper factory
- * Description: Creates and connects the official Redis client before exposing it through Zerux cache.
- * Global Variables: none
- * @param options Redis client options.
- * @returns Redis helper.
- */
-export const createCacheHelper: CacheHelperFactory = async (options) => {
-    const client = createClient(options as RedisCacheOptions);
-    client.on("error", () => undefined);
-    await client.connect();
-    return new RedisCacheHelper(client as RedisClientType);
-};
-
+export { RedisCacheHelper, createRedisCacheHelper } from "./helper.js";
+export type { RedisCacheClient, RedisCacheHelperOptions } from "./types.js";
+export { adaptIORedis, createIORedisCacheHelper, createBullMQRedisOptions } from "./ioredis.js";
+export type { IORedisCompatibleClient, RedisConnectionSettings } from "./ioredis.js";
 export default createCacheHelper;

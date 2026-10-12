@@ -8,15 +8,21 @@ export interface DevClientScriptOptions {
   serviceName: string;
 }
 
+/** Escape JS expression and HTML script boundaries, not only JavaScript quotes. */
+const scriptValue = (value: unknown) => JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, char => ({
+  '<': '\\u003c', '>': '\\u003e', '&': '\\u0026',
+  '\u2028': '\\u2028', '\u2029': '\\u2029'
+} as Record<string, string>)[char]);
+
 const buildInjectedClient = ({ routeName, devServerUrl, allowedDevDomain, devPortLessAlias, serviceName }: DevClientScriptOptions) => `<script data-zdev-client="true">
 (() => {
   if (window.__ZDEV_CLIENT__) return;
   window.__ZDEV_CLIENT__ = true;
-  const app = '${routeName}';
-  const service = '${serviceName}';
-  const devMainServerUrl = '${devServerUrl}';
-  const allowedDevDomain = '${allowedDevDomain}';
-  const devPortLessAlias = '${devPortLessAlias.value}';
+  const app = ${scriptValue(routeName)};
+  const service = ${scriptValue(serviceName)};
+  const devMainServerUrl = ${scriptValue(devServerUrl)};
+  const allowedDevDomain = ${scriptValue(allowedDevDomain ?? null)};
+  const devPortLessAlias = ${scriptValue(devPortLessAlias.value)};
   const resolveDevServerUrl = () => {
     const currentProtocol = window.location.protocol;
     const currentHostname = window.location.hostname;
@@ -794,9 +800,9 @@ export const isPrimaryHtmlRequest = (req: IncomingMessage) => {
 };
 
 export const injectDevClient = (html: string, options: DevClientScriptOptions) => {
+  if (/data-zdev-client=["']true["']/.test(html)) return html;
   const snippet = buildInjectedClient(options);
-  if (html.includes("</body>")) {
-    return html.replace("</body>", `${snippet}</body>`);
-  }
-  return `${html}${snippet}`;
+  return /<\/body\s*>/i.test(html)
+    ? html.replace(/<\/body\s*>/i, match => `${snippet}${match}`)
+    : `${html}${snippet}`;
 };

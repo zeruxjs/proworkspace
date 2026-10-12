@@ -227,11 +227,12 @@ export const getPathValue = (input: unknown, path: string | undefined): unknown 
 
     return path.split(".").reduce<unknown>((current, segment) => {
         if (Array.isArray(current)) {
-            const index = Number.parseInt(segment, 10);
+            const index = /^(0|[1-9][0-9]*)$/.test(segment) ? Number(segment) : NaN;
             return Number.isNaN(index) ? undefined : current[index];
         }
 
         if (typeof current === "object" && current !== null) {
+            if (["__proto__", "constructor", "prototype"].includes(segment) || !Object.prototype.hasOwnProperty.call(current, segment)) return undefined;
             return (current as Record<string, unknown>)[segment];
         }
 
@@ -282,7 +283,21 @@ export const resolveReferences = (value: unknown, results: unknown[]): unknown =
  */
 export const assertJsonSerializable = (value: unknown, label: string): void => {
     try {
-        JSON.stringify(value);
+        const encoded = JSON.stringify(value);
+        if (encoded === undefined || Buffer.byteLength(encoded, "utf8") > 8 * 1024 * 1024) throw new Error("JSON input is missing or exceeds 8 MiB");
+        // Stringifying drops unsupported JavaScript primitives; never silently strip user operations.
+        const visit = (input: unknown, depth = 0): void => {
+            if (depth > 64) throw new Error("JSON input nesting is too deep");
+            if (input === undefined || typeof input === "function" || typeof input === "symbol" || (typeof input === "number" && !Number.isFinite(input))) throw new Error("Unsupported JSON value");
+            if (Array.isArray(input)) { for (const item of input) visit(item, depth + 1); }
+            else if (input !== null && typeof input === "object") {
+                for (const [key, item] of Object.entries(input)) {
+                    if (["__proto__", "constructor", "prototype"].includes(key)) throw new Error("Unsafe JSON object property");
+                    visit(item, depth + 1);
+                }
+            }
+        };
+        visit(value);
     } catch (error) {
         throw createDatabaseError({
             code: "NON_JSON_INPUT",
@@ -334,19 +349,16 @@ export const validateOperation = <T extends QueryOperation>(operation: T): T => 
  * @param options Connector options.
  * @returns Redacted options object.
  */
-export const redactConnectionOptions = (options: Record<string, unknown>): Record<string, unknown> =>
-    Object.fromEntries(
-        Object.entries(options).map(([key, value]) => {
-            const lowered = key.toLowerCase();
-            if (
-                lowered.includes("password") ||
-                lowered.includes("secret") ||
-                lowered.includes("token") ||
-                lowered.includes("key")
-            ) {
-                return [key, "[redacted]"];
-            }
-
-            return [key, value as JsonValue | unknown];
-        })
-    );
+/** Never surface credential-bearing connection URLs or injected native clients. */
+export const redactConnectionOptions = (options: Record<string, unknown>): Record<string, unknown> => {
+    const sensitive = /password|secret|token|key|uri|url|dsn|connectionstring|credential|auth|client|executor|certificate|private|^db$/i;
+    function redact(input: unknown, depth: number): unknown {
+        if (depth > 5) return "[redacted]";
+        if (Array.isArray(input)) return input.map(item => redact(item, depth + 1));
+        if (input && typeof input === "object") {
+            return Object.fromEntries(Object.entries(input).map(([key, value]) => [key, sensitive.test(key) ? "[redacted]" : redact(value, depth + 1)]));
+        }
+        return typeof input === "function" ? "[redacted]" : input;
+    }
+    return redact(options, 0) as Record<string, unknown>;
+};

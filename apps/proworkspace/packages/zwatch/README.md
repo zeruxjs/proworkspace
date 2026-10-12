@@ -1,48 +1,36 @@
-> [!WARNING]
-> This package is in a very early stage of development and is only published for pre-saving the name from being taken by somebody else. All current versions follow the `0.0.1-alpha.x` pattern.
-
 # zwatch
 
+Filesystem watcher for ZeruxJS, with **shared in-process subscriptions**, native notifications and a polling fallback. File updates are reported once after debouncing, and watchers are disposed when the last subscriber unsubscribes.
 
-A high-performance, intelligent file change watcher designed for the ZeruxJS ecosystem. `zwatch` optimizes resource usage by sharing file system events across multiple processes using a local daemon.
-
-## Features
-
-- **Shared Daemon Architecture**: Uses a local IPC socket to broadcast events, ensuring only one system-level watcher runs per project root.
-- **Automatic Takeover**: If the master watcher daemon dies, another process automatically takes over supervision.
-- **Debounced Events**: Intelligent event deduplication and debouncing (50ms) to prevent "double-fire" triggers.
-- **Cross-Platform**: Optimized for both Windows (Named Pipes) and Unix-like (Unix Sockets) systems.
-- **Event Types**: Detects and classifies changes as `new`, `update`, or `delete`.
-
-## Installation
-
-```bash
-npm install zwatch
-```
-
-## Usage
-
-```typescript
+```ts
 import { startWatcher } from 'zwatch';
-
-const stop = startWatcher(process.cwd(), (event, type) => {
-    console.log(`File: ${event.file}`);
-    console.log(`Event Type: ${type}`); // 'new', 'update', or 'delete'
+const stop = startWatcher('src', (event) => console.log(event.file, event.type), {
+  debounceMs: 75,
+  pollIntervalMs: 1500,
+  ignored: (file) => file.endsWith('.log'),
+  onError: console.error
 });
-
-// To stop watching later:
-// stop();
+// During shutdown: stop();
 ```
 
-## How it Works
+Events: `new`, `update`, `delete`; paths are relative to the watched root. Default exclusions: `.git`, `node_modules`. Symbolic links are not traversed. `scan` and `diff` are exported for custom watcher integrations.
 
-1. **Connection**: When `startWatcher` is called, it attempts to connect to a local socket file in `/tmp` (or a Named Pipe on Windows).
-2. **Master/Slave**: If a daemon is already running, the process becomes a "listener" and receives events via IPC.
-3. **Supervision**: If no daemon is found, the current process spawns a master daemon that watches the file system using `fs.watch` and broadcasts events to all connected clients.
-4. **Resilience**: The system is designed to be extremely resilient; if the process holding the master daemon exits, remaining "listener" processes will negotiate and one will take over as the new master.
+**Limitations:** sharing is process-local, not cross-process; polling uses file metadata, so a same-size write preserving modification time may be missed; a complete scan costs O(files). Filesystem read errors are surfaced through `onError`. Watch paths should be trusted; callbacks execute in the caller's process.
 
----
+### Shared watcher lifecycle
 
-<p align="center">
-  Built with ❤️ for the ZeruxJS Framework.
-</p>
+Use `watchDirectory()` when you need to await the baseline scan or force reconciliation:
+
+```ts
+import { watchDirectory } from 'zwatch';
+const watcher = watchDirectory('./src', (event) => console.log(event), {
+  ignored: file => file === '.cache' || file.startsWith('.cache/'),
+  pollIntervalMs: 2000,
+  onError: console.error
+});
+await watcher.ready;
+await watcher.flush();
+watcher.close();
+```
+
+Subscribers to the same directory share underlying watchers without sharing their ignore rules. `startWatcher()` is retained for existing callers and returns a disposal callback. The scanner does not traverse symlinks.

@@ -464,6 +464,7 @@ export interface DatabaseManager {
     getConnectionFacade(slug?: string): DatabaseFacade;
     listConnections(): NormalizedConnectionConfig[];
     dbAccess(slug: string): DatabaseConnector;
+    disconnect(): Promise<void>;
     query(operation: QueryOperation | QueryOperation[]): MaybePromise<DatabaseResult | DatabaseResult[]>;
     createDb(operation: CreateDbOperation): MaybePromise<DatabaseResult>;
     dropDb(operation: DropDbOperation): MaybePromise<DatabaseResult>;

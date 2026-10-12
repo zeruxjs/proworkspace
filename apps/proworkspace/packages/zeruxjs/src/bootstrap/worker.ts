@@ -185,10 +185,14 @@ export class ThreadWorkerPool implements ZeruxThreadWorkerPool {
             task.reject(new Error(`Thread worker "${this.name}" stopped before task started.`));
         }
 
+        for (const task of this.runningTasks.values()) {
+            if (task.timeout) clearTimeout(task.timeout);
+            task.reject(new Error(`Thread worker "${this.name}" stopped during task execution.`));
+        }
+        this.runningTasks.clear();
         await Promise.all([...this.workers].map((worker) => worker.terminate()));
         this.workers.clear();
         this.idleWorkers.length = 0;
-        this.runningTasks.clear();
     }
 
     private spawnWorker() {
@@ -236,12 +240,14 @@ export class ThreadWorkerPool implements ZeruxThreadWorkerPool {
             const task = this.runningTasks.get(worker);
             if (task) {
                 this.runningTasks.delete(worker);
+                if (task.timeout) clearTimeout(task.timeout);
                 task.reject(new Error(`Thread worker "${this.name}" exited with code ${code}.`));
             }
 
             if (this.running && this.workers.size < this.minThreads) {
                 this.spawnWorker();
             }
+            if (this.running) this.dispatch();
         });
 
         return worker;
@@ -391,6 +397,7 @@ export const registerThreadWorker = (
 export const runWorkers = async (runtime: ZeruxRuntime): Promise<ZeruxWorkerRunResult> => {
     const cleanups: Array<{ name: string; cleanup: ZeruxWorkerCleanup }> = [];
 
+    try {
     for (const [name, worker] of runtime.workers) {
         const context: ZeruxWorkerContext = {
             runtime,
@@ -416,6 +423,19 @@ export const runWorkers = async (runtime: ZeruxRuntime): Promise<ZeruxWorkerRunR
             maxThreads: pool.maxThreads
         });
         pool.start();
+    }
+
+    } catch (error) {
+        // Worker initialization may fail halfway through. Do not leak already
+        // started startup workers or thread pools on an unsuccessful bootstrap.
+        for (const [, pool] of [...runtime.threadWorkers].reverse()) {
+            try { await pool.stop(); } catch (cleanupError) { runtime.logger.error('Failed to rollback thread pool', cleanupError); }
+        }
+        for (const { name, cleanup } of [...cleanups].reverse()) {
+            try { await cleanup(); }
+            catch (cleanupError) { runtime.logger.error(`Failed to rollback worker "${name}"`, cleanupError); }
+        }
+        throw error;
     }
 
     return {

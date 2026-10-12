@@ -1,6 +1,6 @@
 {
   "name": "@zeruxjs/font",
-  "version": "0.0.1-alpha.1",
+  "version": "0.0.1-alpha.2",
   "description": "Font Adding and Using",
   "private": true,
   "homepage": "https://github.com/zeruxjs/zeruxjs#readme",
@@ -16,9 +16,14 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "keywords": [
     "Font Adding and Using"
-  ]
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./http": "./dist/http.js"
+  }
 }

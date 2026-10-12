@@ -116,3 +116,6 @@ export type {
   UnknownPathItem,
 } from './types/index.js';
 export * from './utils/index.js';
+
+export { HttpValidationError, readJsonBody, parseJsonRequest, parseQuery, validatedJsonHandler } from './integrations/http.js';
+export type { HttpValidationOptions } from './integrations/http.js';

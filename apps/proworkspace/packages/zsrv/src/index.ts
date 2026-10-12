@@ -1,593 +1,102 @@
-import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
-import net from "node:net";
-import process from "node:process";
-import { startWatcher } from "zwatch";
-import { WebSocketServer, WebSocket } from "ws";
-import {
-    closeSharedDevServer,
-    ensureSharedDevServer,
-    getDevtoolsServerChannelHandler,
-    injectDevClient,
-    isPrimaryHtmlRequest,
-    publishSharedDevEvent,
-    registerSharedDevApp,
-    resolveSharedDevModuleSocketRequest,
-    setSharedDevEventBroadcaster,
-    unregisterSharedDevApp
-} from "z-dev";
-
-import {
-    portlessProxy,
-    portlessAlias,
-    portlessGet,
-    portlessStop
-} from "./portless/portless.js";
-
-/* ---------------- UTIL ---------------- */
-
-let sharedDevWebSocketServer: WebSocketServer | null = null;
-let sharedDevWebSocketHttpServer: http.Server | null = null;
-let devPortLessAlias: { value: string | null | false } = { value: null };
-
-const ensureSharedDevSockets = (server: http.Server) => {
-    if (sharedDevWebSocketServer && sharedDevWebSocketHttpServer === server) {
-        return sharedDevWebSocketServer;
-    }
-
-    if (sharedDevWebSocketServer) {
-        sharedDevWebSocketServer.close();
-    }
-
-    sharedDevWebSocketServer = new WebSocketServer({ noServer: true });
-    sharedDevWebSocketHttpServer = server;
-
-    server.on("upgrade", (req, socket, head) => {
-        const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
-        const wsMatch = requestUrl.pathname.match(/^\/__([^/]+)\/ws$/);
-        if (!wsMatch) {
-            socket.destroy();
-            return;
-        }
-
-        sharedDevWebSocketServer!.handleUpgrade(req, socket, head, (ws) => {
-            (ws as WebSocket & { appName?: string }).appName = requestUrl.searchParams.get("app") ?? undefined;
-            (ws as WebSocket & { identifier?: string }).identifier = requestUrl.searchParams.get("identifier") ?? undefined;
-            (ws as WebSocket & { clientType?: string }).clientType = requestUrl.searchParams.get("client") ?? undefined;
-            (ws as WebSocket & { moduleId?: string }).moduleId = requestUrl.searchParams.get("moduleId") ?? undefined;
-            sharedDevWebSocketServer!.emit("connection", ws, req);
-        });
-    });
-
-    sharedDevWebSocketServer.on("connection", (ws) => {
-        ws.on("message", async (raw) => {
-            try {
-                const message = JSON.parse(String(raw));
-                if (message?.type !== "channel" || typeof message.channel !== "string") return;
-
-                const appName = (ws as WebSocket & { appName?: string }).appName;
-                const identifier = (ws as WebSocket & { identifier?: string }).identifier;
-                const clientType = (ws as WebSocket & { clientType?: string }).clientType;
-                const boundModuleId = (ws as WebSocket & { moduleId?: string }).moduleId;
-
-                if (message.channelType === "server") {
-                    if (!appName) return;
-
-                    let data: unknown = null;
-                    const targetModuleId = typeof message.moduleId === "string" ? message.moduleId : boundModuleId;
-                    if (targetModuleId) {
-                        data = await resolveSharedDevModuleSocketRequest({
-                            appName,
-                            moduleId: targetModuleId,
-                            channel: message.channel,
-                            payload: message.payload,
-                            identifier,
-                            clientType,
-                            requesterModuleId: typeof message.requesterModuleId === "string"
-                                ? message.requesterModuleId
-                                : boundModuleId
-                        });
-                    } else {
-                        const handler = getDevtoolsServerChannelHandler(message.channel);
-                        if (!handler) return;
-                        data = await handler(message.payload, {
-                            app: appName,
-                            identifier,
-                            clientType
-                        });
-                    }
-
-                    ws.send(JSON.stringify({
-                        type: "server-channel",
-                        channel: message.channel,
-                        moduleId: targetModuleId,
-                        identifier,
-                        payload: data ?? null
-                    }));
-                    return;
-                }
-
-                if (message.channelType === "peer" && appName) {
-                    for (const client of sharedDevWebSocketServer!.clients) {
-                        if (client.readyState !== WebSocket.OPEN || client === ws) continue;
-                        const targetApp = (client as WebSocket & { appName?: string }).appName;
-                        const targetIdentifier = (client as WebSocket & { identifier?: string }).identifier;
-                        const targetModuleId = (client as WebSocket & { moduleId?: string }).moduleId;
-                        if (targetApp !== appName) continue;
-                        if (identifier && targetIdentifier && identifier !== targetIdentifier) continue;
-                        if (typeof message.targetModuleId === "string" && targetModuleId !== message.targetModuleId) continue;
-                        if (typeof message.moduleId === "string" && targetModuleId && targetModuleId !== message.moduleId) continue;
-                        client.send(JSON.stringify({
-                            type: "peer-channel",
-                            channel: message.channel,
-                            moduleId: typeof message.moduleId === "string" ? message.moduleId : boundModuleId,
-                            identifier,
-                            payload: message.payload ?? null
-                        }));
-                    }
-                }
-            } catch {
-                return;
-            }
-        });
-    });
-
-    server.on("close", () => {
-        if (sharedDevWebSocketHttpServer === server) {
-            sharedDevWebSocketServer?.close();
-            sharedDevWebSocketServer = null;
-            sharedDevWebSocketHttpServer = null;
-            setSharedDevEventBroadcaster(null);
-        }
-    });
-
-    setSharedDevEventBroadcaster((appName, event) => {
-        if (!sharedDevWebSocketServer) return;
-
-        for (const client of sharedDevWebSocketServer.clients) {
-            if (client.readyState !== WebSocket.OPEN) continue;
-
-            const targetApp = (client as WebSocket & { appName?: string }).appName;
-            if (targetApp && targetApp !== appName) continue;
-
-            const targetIdentifier = (client as WebSocket & { identifier?: string }).identifier;
-            const eventIdentifier = typeof event.payload?.identifier === "string"
-                ? event.payload.identifier
-                : undefined;
-            if (event.type === "client-event" && targetIdentifier && eventIdentifier && targetIdentifier !== eventIdentifier) {
-                continue;
-            }
-
-            client.send(JSON.stringify(event));
-        }
-    });
-
-    return sharedDevWebSocketServer;
-};
-
-const createInjectedAppHandler = (
-    handler: (req: any, res: any) => Promise<void>,
-    options: { serviceName: string; routeName: string; devServerUrl: string; allowedDevDomain?: string | null; devPortLessAlias: { value: string | null | false } }
-) => {
-    return async (req: any, res: any) => {
-        if (!isPrimaryHtmlRequest(req)) {
-            await handler(req, res);
-            return;
-        }
-
-        const chunks: Buffer[] = [];
-        let intercepted = false;
-        let statusCode = 200;
-        const headers = new Map<string, string | number | readonly string[]>();
-
-        const originalWriteHead = res.writeHead.bind(res);
-        const originalWrite = res.write.bind(res);
-        const originalEnd = res.end.bind(res);
-        const originalSetHeader = res.setHeader.bind(res);
-
-        res.setHeader = ((name: string, value: string | number | readonly string[]) => {
-            headers.set(name.toLowerCase(), value);
-            return originalSetHeader(name, value);
-        }) as typeof res.setHeader;
-
-        res.writeHead = ((code: number, ...args: any[]) => {
-            statusCode = code;
-            res.statusCode = code;
-            const [reasonOrHeaders, maybeHeaders] = args;
-            const headHeaders = (typeof reasonOrHeaders === "string" ? maybeHeaders : reasonOrHeaders) ?? {};
-            for (const [key, value] of Object.entries(headHeaders)) {
-                headers.set(key.toLowerCase(), value as string | number | readonly string[]);
-            }
-            return res;
-        }) as typeof res.writeHead;
-
-        res.write = ((chunk: any, encoding?: any, callback?: any) => {
-            intercepted = true;
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
-            if (typeof callback === "function") callback();
-            return true;
-        }) as typeof res.write;
-
-        res.end = ((chunk?: any, encoding?: any, callback?: any) => {
-            if (chunk !== undefined && chunk !== null) {
-                intercepted = true;
-                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
-            }
-
-            const contentType = String(headers.get("content-type") || "");
-            if (!intercepted || !contentType.includes("text/html")) {
-                statusCode = res.statusCode;
-                res.setHeader = originalSetHeader;
-                res.writeHead = originalWriteHead;
-                res.write = originalWrite;
-                res.end = originalEnd;
-
-                for (const [key, value] of headers.entries()) {
-                    originalSetHeader(key, value as any);
-                }
-
-                res.statusCode = statusCode;
-                if (intercepted) {
-                    return originalEnd(Buffer.concat(chunks), callback);
-                }
-                return originalEnd(chunk, encoding, callback);
-            }
-
-            const html = Buffer.concat(chunks).toString("utf8");
-            const transformed = injectDevClient(html, {
-                serviceName: options.serviceName,
-                routeName: options.routeName,
-                devServerUrl: options.devServerUrl,
-                allowedDevDomain: options.allowedDevDomain,
-                devPortLessAlias: options.devPortLessAlias
-            });
-
-            res.setHeader = originalSetHeader;
-            res.writeHead = originalWriteHead;
-            res.write = originalWrite;
-            res.end = originalEnd;
-
-            for (const [key, value] of headers.entries()) {
-                if (key === "content-length") continue;
-                originalSetHeader(key, value as any);
-            }
-
-            originalSetHeader("content-length", Buffer.byteLength(transformed, "utf8"));
-            statusCode = res.statusCode;
-            res.statusCode = statusCode;
-            return originalEnd(transformed, "utf8", callback);
-        }) as typeof res.end;
-
-        await handler(req, res);
-    };
-};
-
-const isPortFree = (port: number) =>
-    new Promise<boolean>((resolve) => {
-        const s = net.createServer();
-        s.once("error", () => resolve(false));
-        s.once("listening", () => s.close(() => resolve(true)));
-        s.listen(port);
-    });
-
-const findPort = async (start: number) => {
-    let p = start;
-    while (!(await isPortFree(p))) p++;
-    return p;
-};
-
-const readJSON = (file: string) => {
-    try {
-        return JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch {
-        return [];
-    }
-};
-
-const writeJSON = (file: string, data: any) => {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2));
-};
-
-const normalizeWebSocketPath = (value: unknown) => {
-    const pathValue = typeof value === "string" && value.trim() ? value.trim() : "/ws";
-    return pathValue.startsWith("/") ? pathValue : `/${pathValue}`;
-};
-
-const isWebSocketPath = (pathname: string, configuredPath: string) =>
-    pathname === configuredPath || pathname.endsWith(configuredPath);
-
-/* ---------------- SERVER.JSON ---------------- */
-
-const getServiceFile = (service: string) => {
-    const dir = path.join(process.cwd(), `.${service}`);
-    const file = path.join(dir, "server.json");
-
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    return file;
-};
-
-const initServiceFile = (file: string) => {
-    if (fs.existsSync(file)) fs.unlinkSync(file);
-    writeJSON(file, []);
-};
-
-const addSerDetails = (file: string, type: string, urls: string[]) => {
-    const data = readJSON(file) || [];
-    const existing = data.find((x: any) => x.type === type);
-
-    if (existing) existing.urls = urls;
-    else data.push({ type, urls });
-
-    writeJSON(file, data);
-};
-
-const removeSerDetails = (file: string, type: string) => {
-    let data = readJSON(file) || [];
-    data = data.filter((x: any) => x.type !== type);
-    writeJSON(file, data);
-};
-
-/* ---------------- MAIN ---------------- */
-
-export const startServer = async (details: any) => {
-    if (!details?.app?.func) {
-        throw new Error("App func required");
-    }
-
-    const service = details.service || "zdev";
-    const root = process.cwd();
-
-    const serviceFile = getServiceFile(service);
-    initServiceFile(serviceFile);
-
-    /* ---------------- PROXY ---------------- */
-
-    console.log("- Starting portless proxy");
-    await portlessProxy(undefined, { https: true });
-    console.log("- Portless proxy ready");
-
-    /* ---------------- APP ---------------- */
-
-    const appName = details.app.name || "app";
-
-    const appPort = details.app.port
-        ? await isPortFree(details.app.port)
-            ? details.app.port
-            : (() => { throw new Error("Port busy"); })()
-        : await findPort(3000);
-
-    let devInfo: Awaited<ReturnType<typeof registerSharedDevApp>> | null = null;
-    let devAlias = false;
-
-    if (details.dev) {
-        devInfo = await registerSharedDevApp({
-            appName,
-            appPort,
-            rootDir: root,
-            preferredPort: details.dev.port,
-            dataFilePath: details.dev.dataFilePath,
-            logFilePath: details.dev.logFilePath,
-            runtimeManifestPath: details.dev.runtimeManifestPath,
-            allowedDomains: details.config?.server?.allowedDomains ?? details.config?.allowedDomains,
-            allowedDevDomain: details.config?.server?.allowedDevDomain ?? details.config?.allowedDevDomain,
-            serviceName: service,
-            devtools: details.config?.devtools
-        });
-        const sharedDevHandle = await ensureSharedDevServer(devInfo.port);
-        if (sharedDevHandle) {
-            ensureSharedDevSockets(sharedDevHandle.server);
-        }
-
-        devAlias = await portlessAlias(service, devInfo.port);
-
-        const devAliasBase = devAlias ? await portlessGet(service) : false;
-        const devUrls = [
-            devInfo.urls.devtools,
-            devInfo.urls.websocket,
-            ...(devAliasBase
-                ? [
-                    `${devAliasBase}/${devInfo.routeName}`,
-                    `${String(devAliasBase).replace(/^http/, "ws")}/__${service}/ws?app=${encodeURIComponent(devInfo.routeName)}`,
-                ]
-                : [])
-        ];
-
-        addSerDetails(serviceFile, "dev", devUrls);
-        devPortLessAlias.value = devUrls.find(url => new URL(url).hostname.endsWith(".localhost") && new URL(url).protocol === "https:") ?? null;;
-    }
-
-    let appRequestHandler = details.app.func;
-    if (devInfo) {
-        appRequestHandler = createInjectedAppHandler(details.app.func, {
-            serviceName: service,
-            routeName: devInfo.routeName,
-            devServerUrl: devInfo.urls.devtools,
-            allowedDevDomain: devInfo.allowedDevDomain,
-            devPortLessAlias: devPortLessAlias
-        });
-    }
-
-    let appWebSocketServer: WebSocketServer | null = null;
-    if (details.config?.websocket?.enabled === true) {
-        const maxPayload = Number(details.config?.websocket?.maxPayload);
-        appWebSocketServer = new WebSocketServer({
-            noServer: true,
-            ...(Number.isFinite(maxPayload) && maxPayload > 0 ? { maxPayload } : {})
-        });
-        appWebSocketServer.on("connection", (ws) => {
-            (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
-            ws.on("pong", () => {
-                (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
-            });
-            ws.on("message", (raw) => {
-                if (appWebSocketServer) {
-                    for (const client of appWebSocketServer.clients) {
-                        if (client.readyState === WebSocket.OPEN && client !== ws) {
-                            client.send(raw);
-                        }
-                    }
-                }
-            });
-        });
-
-        const heartbeat = setInterval(() => {
-            if (!appWebSocketServer) return;
-            for (const client of appWebSocketServer.clients) {
-                const socket = client as WebSocket & { isAlive?: boolean };
-                if (socket.isAlive === false) {
-                    socket.terminate();
-                    continue;
-                }
-                socket.isAlive = false;
-                socket.ping();
-            }
-        }, 30_000);
-        heartbeat.unref?.();
-        appWebSocketServer.on("close", () => clearInterval(heartbeat));
-    }
-
-    const bindWebSocketUpgrade = (server: http.Server) => {
-        if (appWebSocketServer) {
-            const websocketPath = normalizeWebSocketPath(details.config?.websocket?.path);
-            server.on("upgrade", (req, socket, head) => {
-                const requestUrl = new URL(req.url || "/", "http://127.0.0.1");
-                if (isWebSocketPath(requestUrl.pathname, websocketPath)) {
-                    appWebSocketServer!.handleUpgrade(req, socket, head, (ws) => {
-                        appWebSocketServer!.emit("connection", ws, req);
-                    });
-                }
-            });
-        }
-    };
-
-    let appServer = http.createServer(appRequestHandler);
-    bindWebSocketUpgrade(appServer);
-
-    await new Promise<void>((r) => appServer.listen(appPort, r));
-
-    const appAlias = await portlessAlias(appName, appPort);
-
-    const appAliasUrl = await portlessGet(appName);
-
-    const appUrls = [
-        `http://127.0.0.1:${appPort}`,
-        ...(appAliasUrl ? [appAliasUrl] : [])
-    ];
-
-    addSerDetails(serviceFile, "app", appUrls);
-
-    /* ---------------- LOG ---------------- */
-
-    console.log("Application Started");
-
-    console.log(
-        `- App server started at ${appUrls.join(", ")}`
-    );
-
-    if (devInfo) {
-        const devUrls = readJSON(serviceFile)
-            .find((x: any) => x.type === "dev")?.urls;
-
-        console.log(
-            `- Dev server is running at ${devUrls.join(", ")}`
-        );
-    }
-
-    /* ---------------- WATCH ---------------- */
-
-    if (details.dev) {
-        const trigger =
-            details.dev.watchTriggerFunc || (() => true);
-
-        startWatcher(root, async (event: any) => {
-            if (!trigger(event)) return;
-
-            console.log(
-                `[Watcher] File changed: ${event.file} (${event.type})`
-            );
-
-            await new Promise<void>((r) =>
-                appServer.close(() => r())
-            );
-
-            await details.dev.watchFunc(event.file);
-            const sharedDevHandle = await ensureSharedDevServer(devInfo?.port);
-            if (sharedDevHandle) {
-                ensureSharedDevSockets(sharedDevHandle.server);
-            }
-
-            if (!(await isPortFree(appPort))) {
-                throw new Error("Port locked");
-            }
-
-            appRequestHandler = devInfo
-                ? createInjectedAppHandler(details.app.func, {
-                    serviceName: service,
-                    routeName: devInfo.routeName,
-                    devServerUrl: devInfo.urls.devtools,
-                    devPortLessAlias: devPortLessAlias
-                })
-                : details.app.func;
-
-            appServer = http.createServer(appRequestHandler);
-            bindWebSocketUpgrade(appServer);
-
-            await new Promise<void>((r) =>
-                appServer.listen(appPort, r)
-            );
-
-            console.log(
-                `App server restarted at ${appUrls.join(", ")}`
-            );
-
-            if (devInfo) {
-                await publishSharedDevEvent(devInfo.port, {
-                    app: devInfo.routeName,
-                    type: "hot-update",
-                    serviceName: service,
-                    payload: {
-                        file: event.file ?? null,
-                        appUrls,
-                        strategy: typeof event.file === "string" && /\.(css|less|sass|scss|styl|pcss)$/i.test(event.file)
-                            ? "style"
-                            : "document",
-                        updatedAt: new Date().toISOString()
-                    }
-                });
-            }
-        });
-    }
-
-    /* ---------------- CLEANUP ---------------- */
-
-    let cleanedUp = false;
-
-    const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-
-        if (appWebSocketServer) {
-            appWebSocketServer.close();
-        }
-
-        removeSerDetails(serviceFile, "app");
-        removeSerDetails(serviceFile, "dev");
-
-        if (devInfo) {
-            const last = unregisterSharedDevApp(root);
-            if (last) {
-                void closeSharedDevServer();
-                portlessStop();
-            }
-        }
-    };
-
-    process.on("SIGINT", () => {
-        cleanup();
-        process.exit(0);
-    });
-
-    process.on("exit", cleanup);
-};
+export { launchSupervisedCommand, canConnect, childEnvironment, validateAppPort, exitStatus } from './portless/process-supervisor.js';
+export type { SupervisorOptions, SupervisedProcess, ProcessExit } from './portless/process-supervisor.js';
+// Public portless proxy and route-management API. Core implementations live
+// in src/portless so consumers can also import the small dedicated modules.
+export { RouteStore, RouteConflictError } from './portless/routes.js';
+export type { RouteMapping, RouteLease } from './portless/routes.js';
+export {
+  portlessProxy, portlessStop, portlessRestart, portlessRun,
+  portlessList, portlessAlias, portlessGet, portlessHosts, portlessTrust, portlessStatus,
+} from './portless/portless.js';
+
+export { startServer } from './dev/server.js';
+
+export * from "./portless/health.js";
+export * from "./portless/managed-app.js";
+export * from "./portless/process-supervisor.js";
+export * from './portless/managed-status.js';
+export * from './portless/runtime-status.js';
+
+// Traffic pools and readiness-checked, lease-protected backend switching.
+export { BackendHealthStore } from './portless/backend-health-state.js';
+export type { SavedBackendHealth } from './portless/backend-health-state.js';
+export { BackendPool, validateBackends } from './portless/backend-pool.js';
+export type { BackendHealthOptions, BackendStatus } from './portless/backend-pool.js';
+export type { RouteBackend, RouteInfo, ProxyServerOptions } from './portless/types.js';
+export { handoverBackends } from './portless/handover.js';
+export type { HandoverOptions } from './portless/handover.js';
+
+export { createProxyServer, PORTLESS_HEADER } from './portless/proxy.js';
+export type { ProxyServer } from './portless/proxy.js';
+
+export { BackendConnections } from "./portless/backend-connections.js";
+export { launchRollingApplication } from "./portless/rolling-app.js";
+export type { RollingAppOptions, RollingApplication, RollingDeployResult, RollingStatus, RollingPhase } from "./portless/rolling-app.js";
+
+// Cross-process rolling-deployment control, proxy drain RPC and durable history.
+export { parseRollingRunArguments } from "./bin/parse-rolling.js";
+export { createLocalControl, sendLocalControl, readControlDescriptor } from "./portless/local-control.js";
+export { createDeploymentHistory, readDeploymentHistory } from "./portless/deployment-history.js";
+export { createProxyConnectionControl, RemoteBackendConnections } from "./portless/proxy-control.js";
+export type { DeploymentEvent, DeploymentRecord } from "./portless/deployment-history.js";
+
+export { readGenerationRecord, recoverRollingGenerationsLocked } from './portless/generation-registry.js';
+export { inspectRollingControllers, reconcileRollingControllers } from './portless/rolling-reconciler.js';
+export type { ReconciliationItem, ReconciliationReport, ReconciliationOptions } from './portless/rolling-reconciler.js';
+export type { TrackedGeneration, GenerationRecord, RecoveryReport } from './portless/generation-registry.js';
+export { pruneDeploymentHistory } from './portless/deployment-history.js';
+
+// Health-aware local process fleet management; independent from single-instance rolling controllers.
+export { launchInstanceFleet } from './portless/instance-fleet.js';
+export type { InstanceFleet, InstanceFleetOptions, FleetMemberStatus, FleetStatus, FleetReconcileResult, FleetPhase } from './portless/fleet-types.js';
+
+// Multi-instance supervision with authenticated fleet CLI and durable retry budgets.
+export { parseFleetRunArguments } from './bin/parse-fleet.js';
+export { startFleetFromCLI, fleetCLIAction } from './portless/fleet-command.js';
+export { readFleetCheckpoint, createFleetCheckpointWriter, fingerprintFleetConfig, removeFleetCheckpoint } from './portless/fleet-state.js';
+export type { FleetCheckpoint } from './portless/fleet-state.js';
+
+// Section 28: dynamic fleet capacity, bounded request-rate telemetry,
+// hysteretic autoscaling, private event history and CLI controls.
+export { AutoscalePolicy, validateAutoscaleConfig, DEFAULT_AUTOSCALE } from './portless/autoscale-policy.js';
+export type { AutoscaleConfig, AutoscaleState } from './portless/autoscale-policy.js';
+export { createFleetAutoscaler } from './portless/fleet-autoscaler.js';
+export type { FleetAutoscaler, FleetLoadSource, FleetLoadMetrics, FleetAutoscaleObservation } from './portless/fleet-autoscaler.js';
+export { availableFleetPort, fleetServingCount, fleetRetirementCandidate } from './portless/fleet-capacity.js';
+export { appendFleetHistory, readFleetHistory, fleetHistoryPath } from './portless/fleet-events.js';
+export type { FleetEvent, FleetEventKind } from './portless/fleet-events.js';
+export { inspectFleetState } from './portless/fleet-diagnostics.js';
+export type { FleetDiagnostics } from './portless/fleet-diagnostics.js';
+
+export { LinuxFleetResourceSampler, parseLinuxProcessStat } from './portless/fleet-resources.js';
+export type { FleetResourceMetrics, FleetResourceSource } from './portless/fleet-resources.js';
+export type { AutoscaleMetric } from './portless/autoscale-policy.js';
+
+export { renderFleetPrometheus } from './portless/fleet-prometheus.js';
+export type { FleetMetricsExport } from './portless/fleet-prometheus.js';
+
+export { evaluateFleetLiveHealth } from './portless/fleet-live-health.js';
+export type { LiveFleetHealthOptions, LiveFleetHealthReport } from './portless/fleet-live-health.js';
+
+export { FleetMetricHistory, readFleetMetricHistory, fleetMetricHistoryPath } from './portless/fleet-metric-history.js';
+export type { FleetMetricPoint } from './portless/fleet-metric-history.js';
+
+export { readLinuxContainerLimits } from './portless/fleet-container.js';
+export type { LinuxContainerLimits } from './portless/fleet-container.js';
+export { filterProxyHeaders, validateProxyBindAddress } from './portless/proxy-headers.js';
+export { ProxyAdmission } from './portless/proxy-admission.js';
+export type { ProxyAdmissionOptions } from './portless/proxy-admission.js';
+export { parseProxyStartArguments } from './bin/parse-proxy.js';
+
+// Built-in transport/protocol APIs (MCP moved into ZSRV).
+export * from './protocols/index.js';
+export { ProxyTelemetry } from './portless/proxy-telemetry.js';
+export type { ProxyLoadStatus, RouteLoadStatus, StatusFamily } from './portless/proxy-telemetry.js';
+
+export { forwardCompressedResponse, negotiateCompression, parseAcceptEncoding, encodingQuality, compressionSupported, validateCompressionOptions } from './portless/proxy-compression.js';
+export type { ProxyCompressionOptions, CompressionEncoding } from './portless/proxy-compression.js';
+export { ApplicationLoadMonitor } from './portless/application-load.js';
+export type { ApplicationUsage } from './portless/application-load.js';
+
+export { ProxyResponseCache } from './portless/proxy-cache.js';
+export type { ProxyCacheOptions, ProxyCacheStats } from './portless/proxy-cache.js';

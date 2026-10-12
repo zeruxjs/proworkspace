@@ -7,8 +7,12 @@ import { findScriptEntry, importModule, toPosixPath, walkDirectory } from "../ut
 import type { ZeruxConfig } from "../index.js";
 import { isRedirectResponse } from "../navigation.js";
 import { getResolvedTheme, getThemeConfig, getThemeMode } from "../theme.js";
-import { initializeDatabaseRuntime } from "./database.js";
-import { initializeCacheRuntime } from "./cache.js";
+import { initializeRuntimeServices, type RuntimeServiceScope } from "./services.js";
+import { registerServiceHttpRoutes } from "./service-http.js";
+import { redactManifestConfig } from "./manifest-config.js";
+import { createZeruxProtocols, type ZeruxProtocols } from "../protocols.js";
+import { ApplicationHttpMetrics } from "../metrics.js";
+import { applyCachePolicy, isCached, isStream, conditionalEtag, sendStream, stream } from "../response.js";
 import type {
     BootstrapResult,
     DiscoveredRoute,
@@ -325,6 +329,18 @@ const setThemePreferenceHeaders = (res: ServerResponse, config: ZeruxConfig) => 
 const sendResponse = (res: ServerResponse, payload: unknown, statusCode = 200, context?: ZeruxRequestContext) => {
     if (res.writableEnded) return;
 
+    if (isCached(payload)) {
+        applyCachePolicy(res, payload.policy);
+        if (payload.policy.etag && context) {
+            const data = payload.value;
+            if (!isStream(data) && !isRedirectResponse(data) && data !== undefined) {
+                const bytes = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data));
+                if (conditionalEtag(context.req, res, bytes)) return;
+            }
+        }
+        payload = payload.value;
+    }
+    if (isStream(payload)) { sendStream(res, payload, context?.req); return; }
     if (isRedirectResponse(payload)) {
         res.setHeader("Location", payload.location);
         res.writeHead(payload.statusCode);
@@ -340,7 +356,8 @@ const sendResponse = (res: ServerResponse, payload: unknown, statusCode = 200, c
 
     if (Buffer.isBuffer(payload)) {
         res.statusCode = statusCode;
-        res.end(payload);
+        if (context?.req.method === 'HEAD') { res.setHeader('Content-Length', payload.byteLength); res.end(); }
+        else res.end(payload);
         return;
     }
 
@@ -358,13 +375,16 @@ const sendResponse = (res: ServerResponse, payload: unknown, statusCode = 200, c
             "Content-Type",
             looksLikeHtml(finalPayload) ? "text/html; charset=utf-8" : "text/plain; charset=utf-8"
         );
-        res.end(finalPayload);
+        if (context?.req.method === 'HEAD') { res.setHeader('Content-Length', Buffer.byteLength(finalPayload)); res.end(); }
+        else res.end(finalPayload);
         return;
     }
 
     res.statusCode = statusCode;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.end(JSON.stringify(payload));
+    const serialized = JSON.stringify(payload);
+    if (context?.req.method === 'HEAD') { res.setHeader('Content-Length', Buffer.byteLength(serialized)); res.end(); }
+    else res.end(serialized);
 };
 
 const routePathFromFile = (appDir: string, filePath: string) => {
@@ -646,7 +666,8 @@ const createRuntime = async (
     rootDir: string,
     mode: RuntimeMode,
     config: ZeruxConfig,
-    structure: ResolvedStructure
+    structure: ResolvedStructure,
+    serviceScope: RuntimeServiceScope
 ): Promise<ZeruxRuntime> => {
     const middleware = new Map<string, MiddlewareFunction>();
     const globalMiddleware: string[] = [];
@@ -658,6 +679,12 @@ const createRuntime = async (
     const routes: DiscoveredRoute[] = [];
     const publicFiles = collectPublicFiles(rootDir, structure.publicDirs);
     const multisiteEnabled = config.multisite === true;
+    const httpMetrics = new ApplicationHttpMetrics();
+    let appProtocols: ZeruxProtocols | undefined;
+    const protocols = () => {
+        if (config.protocols?.enabled === false) throw new Error('Application protocols are disabled');
+        return appProtocols ??= createZeruxProtocols(config.protocols);
+    };
 
     const middlewareModules = await loadModulesFromDirectories(rootDir, structure.middlewareDirs, mode);
     for (const module of middlewareModules) {
@@ -692,6 +719,9 @@ const createRuntime = async (
     let runtime!: ZeruxRuntime;
 
     const pluginApi: ZeruxPluginApi = {
+        protocols,
+        service: (name) => serviceScope.get(name),
+        getLoadStatus: (windowMs) => httpMetrics.snapshot(windowMs),
         addRoute(route) {
             const normalizedMethod = normalizeMethod(route.method);
             const existing = routes.find((item) => item.pattern === sanitizePathname(route.pattern));
@@ -823,6 +853,9 @@ const createRuntime = async (
         }
     }
 
+    // Reserved Fetch endpoints belong to this generation, with collision protection.
+    registerServiceHttpRoutes(pluginApi, serviceScope, [...routes.map(route => route.pattern), ...publicFiles.keys()]);
+
     runtime = {
         rootDir,
         mode,
@@ -838,8 +871,14 @@ const createRuntime = async (
         routes,
         publicFiles,
         entryModulePath,
+        get protocolGateway() { return appProtocols?.gateway; },
+        closeProtocols() { appProtocols?.close(); },
+        serviceScope,
+        closeServices() { return serviceScope.close(); },
+        getLoadStatus(windowMs) { return httpMetrics.snapshot(windowMs); },
         createHandler() {
             return async (req: IncomingMessage, res: ServerResponse) => {
+                httpMetrics.track(req, res);
                 const host = req.headers.host || "";
                 const allowedDomains = config.server?.allowedDomains ?? config.allowedDomains ?? [];
                 const allowedDevDomain = config.server?.allowedDevDomain ?? config.allowedDevDomain;
@@ -862,6 +901,7 @@ const createRuntime = async (
                 try {
                     const url = new URL(req.url || "/", "http://127.0.0.1");
                     const pathname = sanitizePathname(url.pathname);
+                    if (appProtocols && await appProtocols.gateway.handle(req, res)) return;
                     const staticFile = publicFiles.get(pathname);
 
                     if (staticFile) {
@@ -872,7 +912,10 @@ const createRuntime = async (
                     const method = normalizeMethod(req.method);
                     const contentType = req.headers["content-type"] || "";
                     let body: unknown = undefined;
-                    if (req.method && !["GET", "HEAD"].includes(req.method.toUpperCase())) {
+                    const earlyRoute = matchRoute(sortRoutes(routes), pathname, method);
+                    const internalServiceRequest = earlyRoute?.route.id.startsWith('service:') === true;
+                    const streamBody = earlyRoute?.route.meta?.streamBody === true && (!multisiteEnabled || internalServiceRequest);
+                    if (req.method && !["GET", "HEAD"].includes(req.method.toUpperCase()) && !streamBody) {
                         const rawBody = await readRequestBody(req);
                         if (rawBody.length > 0) {
                             body = contentType.includes("application/json")
@@ -884,7 +927,7 @@ const createRuntime = async (
                     const multisiteRegistrations: MultisiteRegistration[] = [];
                     let multisiteRegistrationMissed = false;
                     const applyRegisteredMultisite = () => {
-                        if (!multisiteEnabled || multisiteRegistrations.length === 0) return;
+                        if (!multisiteEnabled || internalServiceRequest || multisiteRegistrations.length === 0) return;
 
                         const result = applyMultisitePath(host, pathname, multisiteRegistrations);
                         multisiteRegistrationMissed = !result;
@@ -909,7 +952,10 @@ const createRuntime = async (
                         pathname,
                         params: {},
                         query: url.searchParams,
-                        body,
+                        body: streamBody ? req : body,
+                        requestStream: req,
+                        setCache(policy) { applyCachePolicy(res, policy); },
+                        stream,
                         multisiteRegister(registerUrl: string, folderName: string) {
                             if (!multisiteEnabled) return;
                             multisiteRegistrations.push(createMultisiteRegistration(
@@ -924,6 +970,7 @@ const createRuntime = async (
                         state: {},
                         env: process.env,
                         services: {
+                            get: name => serviceScope.get(name),
                             controllers: Object.fromEntries(controllers.entries()),
                             composables: Object.fromEntries(composables.entries())
                         }
@@ -1028,7 +1075,8 @@ const createRuntime = async (
                 mode,
                 rootDir,
                 entryModulePath,
-                config,
+                config: redactManifestConfig(config),
+                services: serviceScope.status(),
                 structure: {
                     ...structure,
                     rootDir: undefined,
@@ -1072,9 +1120,14 @@ export const bootstrapApplication = async (
     if (typeof globalThis !== 'undefined') {
         (globalThis as any).zeruxConfig = config;
     }
-    await initializeDatabaseRuntime(config);
-    await initializeCacheRuntime(config);
-    const runtime = await createRuntime(rootDir, mode, config, structure);
+    const serviceScope = await initializeRuntimeServices(config, rootDir);
+    let runtime: ZeruxRuntime;
+    try {
+        runtime = await createRuntime(rootDir, mode, config, structure, serviceScope);
+    } catch (error) {
+        await serviceScope.close().catch(() => {});
+        throw error;
+    }
 
     return {
         config,
