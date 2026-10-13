@@ -5,6 +5,7 @@ export * from './templates.js';
 export * from './filters.js';
 export * from './attachments.js';
 export * from './manager.js';
+export * from './smtp-outcomes.js';
 export * from './queue.js';
 export * from './persistence.js';
 export * from './preferences.js';

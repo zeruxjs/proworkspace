@@ -66,3 +66,20 @@ The package-managed inbox table remains available: `createDatabaseInboxStore(db,
 Alternatively `createEmailReceiver({accounts,mode:'json',onMessage})` returns the parsed message payloads directly and does not require an inbox database. This mode does not deduplicate for you.
 
 Build private inbox UIs using `createInboxApi({store,receiver,authorize,canErase})`: `list`, `search`, `get`, `folders`, `markSeen`, `markUnread`, `setFlagged`, `poll` and `eraseLocal`. Authentication/authorization is mandatory for API creation, list/search pages are summary-only, search scans at most a configured number of rows, and deletion needs explicit retention approval. IMAP mutations check UIDVALIDITY; POP3 cannot set remote read/flag state. Refer to root `SECTION_65_INBOX_STORAGE_UI_API.md` for detailed configuration, function calls and known limits.
+
+
+## Section 67 — Multiple IMAP mailboxes and stronger inbound validation
+
+Use `IncomingAccount.mailboxes` as an allowlist for additional IMAP folders and
+`receiver.poll(name,{mailbox,cursor})` for folder-scoped receiving. Returned
+`nextCursor.mailbox` must be persisted and reused only for the same mailbox.
+`receiver.pollConfiguredMailboxes()` is a convenience **without durable cursors**;
+for multi-server jobs, create one `createDatabaseMailboxSync({...,mailbox})`
+coordinator per configured folder. The old `poll()` default-folder API remains.
+
+POP3 UIDL entries are validated for uniqueness; invalid MIME attachment metadata
+is rejected, and oversized attachment binary is not exposed or stored. The Inbox
+API `poll(account,mailbox?)` passes the selected mailbox to `authorize` before
+network access. The package-managed inbox table, host-owned mapped tables and
+JSON-only mode remain supported. See `SECTION_67_IMAP_MULTI_MAILBOX_HARDENING.md`
+for test-server setup, replay/authorization requirements and production limits.

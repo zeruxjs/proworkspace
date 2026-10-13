@@ -75,3 +75,16 @@ See [SECURITY.md](SECURITY.md) for the current pre-release support policy and in
 ### Section 66 — Release gate and security policy
 
 `npm run section66:finalize` runs the isolated dependency-resolving, clean-build and smoke-test gate. It fails quickly on unavailable npm registries, and leaves the checked-in lockfile unchanged until all checks pass. The root [security policy](SECURITY.md) defines private vulnerability reporting and pre-release security-support status. This environment still reports `EAI_AGAIN` and 14 unresolved external lockfile entries, so Section 66 is **not yet production-certified**. See [Section 66 final gate report](SECTION_66_RELEASE_GATE_SECURITY.md).
+
+
+### Section 67 — Email receiving production-hardening (live gate open)
+
+Additional IMAP folders can now be allowlisted, polled and independently
+checkpointed without mixing UID cursors or mailbox identities. POP3 UIDL and MIME
+attachment validation are stricter, and inbox API manual polling enforces folder
+permission checks. See `SECTION_67_IMAP_MULTI_MAILBOX_HARDENING.md`. Real IMAP/POP3,
+clean npm installs and database cluster certification remain pending.
+
+### Section 68 — SMTP acceptance, verified feedback and reputation safeguards
+
+See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`: outbound envelope classifications distinguish SMTP acceptance from downstream delivery, uncertain/partial outcomes stay out of automatic resend, verified preflight SMTP fallback is explicit, signed provider feedback batches are validated in full before writes, and strict TLS policy defaults are enforced. Live SMTP/provider certification and the prior clean-install gate remain open.

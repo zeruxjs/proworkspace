@@ -5,6 +5,7 @@ import type {InboundSafety} from './inbound-safety.js';
 
 const accountPattern=/^[a-z][a-z0-9_-]{0,63}$/;
 const tablePattern=/^[a-z][a-z0-9_]{0,62}$/;
+const MAX_IMAP_UID=0xffffffff;
 export type IncomingProtocol='imap'|'pop3';
 export type IncomingAuth={user:string;password:string;accessToken?:never}|{user:string;accessToken:string;password?:never};
 export interface IncomingAccount {
@@ -12,7 +13,9 @@ export interface IncomingAccount {
   /** TLS is required. Plaintext POP3/IMAP is deliberately unsupported. */
   secure?:true;
   auth:IncomingAuth;
-  mailbox?:string; // IMAP only. POP3 always uses its single mailbox.
+  mailbox?:string; // Default IMAP mailbox; POP3 always uses its single mailbox.
+  /** Optional allowlist of additional IMAP folders that may be polled by name. */
+  mailboxes?:string[];
   enabled?:boolean;
   timeoutMs?:number;
   maxMessageBytes?:number;
@@ -78,8 +81,8 @@ export interface IncomingConnections {
   imap(account:IncomingAccount):Promise<ImapConnection>;
   pop3(account:IncomingAccount):Promise<Pop3Connection>;
 }
-export interface IncomingPollCursor {uidValidity?:string;afterUid:number;}
-export interface IncomingPollOptions {cursor?:IncomingPollCursor;}
+export interface IncomingPollCursor {uidValidity?:string;afterUid:number;/** Bind resume state to exactly one IMAP folder. */mailbox?:string;}
+export interface IncomingPollOptions {cursor?:IncomingPollCursor;/** Only a configured IMAP mailbox can be selected. */mailbox?:string;}
 export interface EmailReceiverOptions {
   accounts:IncomingAccount[];
   /** If omitted, JSON mode returns parsed messages without installing/using any inbox tables. */
@@ -122,7 +125,23 @@ function checkAccount(account:IncomingAccount){
   if(account.protocol==='pop3'&&'accessToken'in account.auth)throw new TypeError('POP3 OAuth2 is not supported by the selected POP3 driver');
   if(account.protocol==='pop3'&&(/[\r\n\0]/.test(account.auth.user)||typeof account.auth.password==='string'&&/[\r\n\0]/.test(account.auth.password)))throw new TypeError('Unsafe POP3 authentication data');
   if(account.protocol==='pop3'&&account.mailbox)throw new TypeError('POP3 does not support named mailboxes');
-  if(account.mailbox&&(/\r|\n|\0/.test(account.mailbox)||account.mailbox.length>255))throw new TypeError('Invalid IMAP mailbox');
+  if(account.mailbox&&!safeMailbox(account.mailbox))throw new TypeError('Invalid IMAP mailbox');
+  if(account.mailboxes!==undefined){
+    if(account.protocol!=='imap'||!Array.isArray(account.mailboxes)||account.mailboxes.length>100||
+      account.mailboxes.some(folder=>!safeMailbox(folder))||new Set(account.mailboxes).size!==account.mailboxes.length)
+      throw new TypeError('Invalid IMAP mailbox allowlist');
+  }
+}
+function safeMailbox(value:unknown):value is string{
+  return typeof value==='string'&&value.length>0&&value.length<=255&&!/[\r\n\0]/.test(value);
+}
+function resolveMailbox(account:IncomingAccount,requested:string|undefined):string{
+  if(account.protocol==='pop3'){if(requested!==undefined)throw new TypeError('POP3 has no named mailboxes');return 'INBOX';}
+  const mailbox=requested??account.mailbox??'INBOX';
+  if(!safeMailbox(mailbox))throw new TypeError('Invalid IMAP mailbox');
+  if(requested!==undefined&&requested!==account.mailbox&&requested!=='INBOX'&&!account.mailboxes?.includes(requested))
+    throw new Error('IMAP mailbox not configured for this account');
+  return mailbox;
 }
 function keyFor(account:string,protocol:IncomingProtocol,mailbox:string,uidValidity:string,remoteId:string):string{
   return createHash('sha256').update(JSON.stringify([account,protocol,mailbox,uidValidity,remoteId])).digest('hex');
@@ -292,16 +311,30 @@ export function createEmailReceiver(options:EmailReceiverOptions){
     const externalVerdict=options.inspectRaw?await options.inspectRaw({account:account.name,raw}):undefined;
     if(externalVerdict&&!['clean','spam','phishing','malware','review'].includes(externalVerdict))throw new Error('Invalid external mail verdict');
     const parsed=await parse(raw);
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||
+      (parsed.attachments!==undefined&&!Array.isArray(parsed.attachments))||
+      (parsed.text!==undefined&&typeof parsed.text!=='string')||
+      (parsed.html!==undefined&&parsed.html!==false&&typeof parsed.html!=='string'))
+      throw new Error('Invalid MIME parser result');
     const text=clip(parsed.text,24000),html=clip(typeof parsed.html==='string'?await sanitizeHtml(parsed.html):undefined,24000);
     const attachments:InboundAttachment[]=[];let inlineBytes=0,omitted=false;
     for(const original of (parsed.attachments??[]).slice(0,100)){
-      const attachment:InboundAttachment={filename:safeFilename(original.filename),contentType:(original.contentType??'application/octet-stream').replace(/[\r\n\0]/g,'').slice(0,128),size:original.size??original.content?.length??0,...(original.cid?{contentId:original.cid.slice(0,320)}:{}),
+      if(!original||typeof original!=='object'||
+        (original.content!==undefined&&!Buffer.isBuffer(original.content))||
+        (original.size!==undefined&&(!Number.isSafeInteger(original.size)||original.size<0)))
+        throw new Error('Invalid MIME attachment');
+      const actualSize=original.content?.length??0;
+      const declaredSize=original.size??actualSize;
+      const size=Math.max(actualSize,declaredSize);
+      const attachment:InboundAttachment={filename:safeFilename(original.filename),
+        contentType:String(original.contentType??'application/octet-stream').replace(/[\r\n\0]/g,'').slice(0,128),size,...(original.cid?{contentId:String(original.cid).slice(0,320)}:{}),
         ...((original.contentDisposition==='inline'||Boolean(original.cid))?{inline:true}:{})};
-      if(original.content){
+      if(size>max){attachment.contentOmitted=true;omitted=true;}
+      if(original.content&&size<=max){
         attachment.scanVerdict=options.inspectAttachment?await options.inspectAttachment({account:account.name,messageId:id,filename:attachment.filename,content:original.content}):'unscanned';
         if(!['clean','suspicious','blocked','unscanned'].includes(attachment.scanVerdict))throw new Error('Invalid attachment scanner verdict');
       }
-      const safeBytes=original.content&&attachment.scanVerdict!=='blocked'&&attachment.scanVerdict!=='suspicious'&&externalVerdict!=='malware';
+      const safeBytes=original.content&&size<=max&&attachment.scanVerdict!=='blocked'&&attachment.scanVerdict!=='suspicious'&&externalVerdict!=='malware';
       if(options.attachmentContent==='base64'&&mode==='json'&&original.content&&!safeBytes){attachment.contentOmitted=true;omitted=true;}
       if(options.attachmentContent==='base64'&&mode==='json'&&safeBytes){
         if(inlineBytes+original.content!.length<=maxInline){attachment.contentBase64=original.content!.toString('base64');inlineBytes+=original.content!.length;}
@@ -337,7 +370,10 @@ export function createEmailReceiver(options:EmailReceiverOptions){
     const message=typeof messageId==='string'?await options.store?.get(messageId):messageId;
     if(message&&message.id!==keyFor(message.account,message.protocol,message.mailbox,message.uidValidity??'',message.remoteId))
       throw new Error('Invalid IMAP message identity');
-    if(!message||message.account!==name||message.protocol!=='imap'||!/^[1-9]\d*$/.test(message.remoteId)||!message.uidValidity)throw new Error('IMAP message not found');
+    if(!message||message.account!==name||message.protocol!=='imap'||!/^[1-9]\d*$/.test(message.remoteId)||
+      !Number.isSafeInteger(Number(message.remoteId))||Number(message.remoteId)>MAX_IMAP_UID||
+      !message.uidValidity||!safeMailbox(message.mailbox)||
+      ![account.mailbox??'INBOX','INBOX',...(account.mailboxes??[])].includes(message.mailbox))throw new Error('IMAP message not found');
     const client=await connections.imap(account);let connected=false;
     try{await client.connect();connected=true;const lock=await client.getMailboxLock(message.mailbox,{readOnly:false});
       try{if(String(client.mailbox?.uidValidity)!==message.uidValidity)throw new Error('IMAP UIDVALIDITY changed; refusing to modify a different message');
@@ -348,7 +384,7 @@ export function createEmailReceiver(options:EmailReceiverOptions){
     }finally{if(connected)await client.logout();}
   }
   return {
-    accounts(){return [...accounts.values()].map(({name,protocol,host,port,enabled,mailbox})=>({name,protocol,host,port:port??(protocol==='imap'?993:995),enabled:enabled!==false,mailbox:mailbox??'INBOX'}));},
+    accounts(){return [...accounts.values()].map(({name,protocol,host,port,enabled,mailbox,mailboxes})=>({name,protocol,host,port:port??(protocol==='imap'?993:995),enabled:enabled!==false,mailbox:mailbox??'INBOX',...(protocol==='imap'?{mailboxes:[...new Set([mailbox??'INBOX',...(mailboxes??[])])]}:{})}));},
     get:(id:string)=>{if(!options.store)throw new Error('No inbox store configured; handle messages returned by poll()');return options.store.get(id);},
     /** Verify authentication and TLS without changing remote mail or local inbox state. */
     async verify(name:string):Promise<boolean>{
@@ -366,23 +402,27 @@ export function createEmailReceiver(options:EmailReceiverOptions){
     async poll(name:string,pollOptions:IncomingPollOptions={}){
       if(closed)throw new Error('Email receiver closed');const account=accounts.get(name);
       if(!account||account.enabled===false)throw new Error('Receive account unavailable');
+      const mailbox=resolveMailbox(account,pollOptions.mailbox);
       const limit=account.maxMessagesPerPoll??50,maxScan=account.maxMailboxMessages??5000;
       let scanned=0,stored=0,duplicates=0,oversized=0;const newIds:string[]=[],messages:InboundMessage[]=[];
       const cursor=pollOptions.cursor;
-      if(cursor&&(account.protocol!=='imap'||!Number.isSafeInteger(cursor.afterUid)||cursor.afterUid<0||cursor.afterUid>Number.MAX_SAFE_INTEGER-50000||
-        (cursor.uidValidity!==undefined&&!/^\d+$/.test(cursor.uidValidity))))throw new TypeError('Invalid IMAP incremental cursor');
+      if(cursor&&(account.protocol!=='imap'||!Number.isSafeInteger(cursor.afterUid)||cursor.afterUid<0||cursor.afterUid>MAX_IMAP_UID||
+        (cursor.uidValidity!==undefined&&!/^\d+$/.test(cursor.uidValidity))||
+        (cursor.mailbox!==undefined&&(!safeMailbox(cursor.mailbox)||cursor.mailbox!==mailbox))||
+        (cursor.mailbox===undefined&&cursor.afterUid>0&&mailbox!==(account.mailbox??'INBOX'))))throw new TypeError('Invalid or cross-mailbox IMAP cursor');
       let nextCursor:IncomingPollCursor|undefined;
       if(account.protocol==='imap'){
         const client=await connections.imap(account);let connected=false;
         try{
           await client.connect();connected=true;
-          const mailbox=account.mailbox??'INBOX',lock=await client.getMailboxLock(mailbox,{readOnly:true});
+          const lock=await client.getMailboxLock(mailbox,{readOnly:true});
           try{
             if(!cursor&&(client.mailbox?.exists??0)>maxScan)throw new RangeError('IMAP mailbox exceeds scan bound; use incremental cursor polling');
             const validity=String(client.mailbox?.uidValidity??'');if(!/^\d+$/.test(validity))throw new Error('IMAP server did not expose UIDVALIDITY');
             if(cursor?.uidValidity&&cursor.uidValidity!==validity)throw new Error('IMAP UIDVALIDITY changed; reset incremental cursor explicitly');
-            const upper=cursor?cursor.afterUid+maxScan:undefined;
-            const uids=await client.search(cursor?{uid:`${cursor.afterUid+1}:${upper}`}:{all:true},{uid:true});
+            const upper=cursor?Math.min(MAX_IMAP_UID,cursor.afterUid+maxScan):undefined;
+            const uids=cursor?.afterUid===MAX_IMAP_UID?[]:
+              await client.search(cursor?{uid:`${cursor.afterUid+1}:${upper}`}:{all:true},{uid:true});
             if(uids===false)throw new Error('IMAP UID search failed');
             if(uids.length>maxScan)throw new RangeError('IMAP UID search exceeded bound');
             const candidateUids=uids.filter(uid=>!cursor||(uid>cursor.afterUid&&uid<=upper!)).sort((a,b)=>cursor?a-b:b-a);
@@ -390,11 +430,11 @@ export function createEmailReceiver(options:EmailReceiverOptions){
             for(const uid of candidateUids){
               if(scanned>=limit)break;
               visited++;
-              if(!Number.isSafeInteger(uid)||uid<1)throw new Error('Invalid IMAP UID');
+              if(!Number.isSafeInteger(uid)||uid<1||uid>MAX_IMAP_UID)throw new Error('Invalid IMAP UID');
               const id=keyFor(name,'imap',mailbox,validity,String(uid));
               if(mode==='persist'&&await options.store!.get(id)){duplicates++;lastProcessed=uid;continue;}
               const msg=await client.fetchOne(uid,{source:true,size:true},{uid:true});
-              if(!msg||!msg.source)throw new Error('IMAP source unavailable; retry the cursor instead of skipping the UID');
+              if(!msg||!msg.source||!(msg.source instanceof Uint8Array))throw new Error('IMAP source unavailable or invalid; retry the cursor instead of skipping the UID');
               if(msg.size!==undefined&&msg.size>(account.maxMessageBytes??8*1024*1024)){oversized++;lastProcessed=uid;continue;}
               scanned++;
               try{const message=await save(account,mailbox,String(uid),validity,Buffer.from(msg.source));if(message){stored++;newIds.push(id);if(mode==='json')messages.push(message);}else duplicates++;lastProcessed=uid;}
@@ -405,7 +445,7 @@ export function createEmailReceiver(options:EmailReceiverOptions){
               // advancing across an empty UID range could lose late messages.
               const next=Number(client.mailbox?.uidNext);
               const knownUpper=Number.isSafeInteger(next)&&next>0?Math.max(cursor.afterUid,next-1):lastProcessed;
-              nextCursor={uidValidity:validity,afterUid:visited<candidateUids.length?lastProcessed:Math.min(upper!,Math.max(lastProcessed,knownUpper))};
+              nextCursor={uidValidity:validity,mailbox,afterUid:visited<candidateUids.length?lastProcessed:Math.min(upper!,Math.max(lastProcessed,knownUpper))};
             }
           }finally{lock.release();}
         }finally{if(connected)await client.logout();}
@@ -413,6 +453,13 @@ export function createEmailReceiver(options:EmailReceiverOptions){
         const client=await connections.pop3(account);
         try{
           const pairs=await client.UIDL();if(!Array.isArray(pairs)||pairs.length>maxScan)throw new RangeError('POP3 UIDL mailbox exceeds scan bound');
+          const numbers=new Set<string>(),ids=new Set<string>();
+          for(const pair of pairs){
+            const number=String(pair?.[0]??''),uidl=String(pair?.[1]??'');
+            if(!/^[1-9]\d*$/.test(number)||!uidl||uidl.length>512||/[\r\n\0]/.test(uidl)||numbers.has(number)||ids.has(uidl))
+              throw new Error('Invalid or duplicate POP3 UIDL entry');
+            numbers.add(number);ids.add(uidl);
+          }
           for(const pair of pairs.slice().reverse()){
             if(scanned>=limit)break;
             const number=String(pair?.[0]??''),remoteId=String(pair?.[1]??'');
@@ -429,6 +476,18 @@ export function createEmailReceiver(options:EmailReceiverOptions){
         ...(mode==='json'?{messages}:{}),...(nextCursor?{nextCursor}:{})};
     },
     async pollAll(){const results=[];for(const name of accounts.keys())if(accounts.get(name)?.enabled!==false)results.push(await this.poll(name));return results;},
+    /** Explicitly poll all configured IMAP folders. For resumable synchronization use a separate
+     * durable checkpoint per (account, mailbox); this helper alone does not persist cursors. */
+    async pollConfiguredMailboxes(){
+      const results=[];
+      for(const account of accounts.values()){
+        if(account.enabled===false)continue;
+        if(account.protocol==='pop3'){results.push(await this.poll(account.name));continue;}
+        for(const mailbox of new Set([account.mailbox??'INBOX',...(account.mailboxes??[])]))
+          results.push(await this.poll(account.name,{mailbox,cursor:{afterUid:0,mailbox}}));
+      }
+      return results;
+    },
     /** List folders on an IMAP account; never exposes server credentials. */
     async folders(name:string):Promise<{path:string;name?:string}[]>{
       if(closed)throw new Error('Email receiver closed');const account=accounts.get(name);

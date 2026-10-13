@@ -4,7 +4,7 @@ import type {CampaignDatabaseConnection} from './campaign-storage.js';
 import type {IncomingPollCursor} from './inbound.js';
 
 export interface MailboxSyncState {
-  id:string;account:string;version:number;epoch:number;
+  id:string;account:string;mailbox?:string;version:number;epoch:number;
   cursor:IncomingPollCursor;
   lease:null|{owner:string;token:string;expiresAt:number};
   status:'idle'|'running'|'failed';
@@ -13,20 +13,24 @@ export interface MailboxSyncState {
 export interface MailboxSyncOptions {
   db:CampaignDatabaseConnection;
   id:string;account:string;
-  receiver:{poll:(account:string,options:{cursor:IncomingPollCursor})=>Promise<{stored:number;nextCursor?:IncomingPollCursor}>};
+  /** Optional IMAP folder; each folder has its own durable checkpoint and lease. */
+  mailbox?:string;
+  receiver:{poll:(account:string,options:{cursor:IncomingPollCursor;mailbox?:string})=>Promise<{stored:number;nextCursor?:IncomingPollCursor}>};
   leaseMs?:number;table?:string;now?:()=>number;
 }
 const validName=(v:string)=>typeof v==='string'&&/^[a-zA-Z0-9_.:-]{1,80}$/.test(v);
 /** DB unique inserts and atomic affectedCount CAS are required for cross-process worker safety. */
 export function createDatabaseMailboxSync(options:MailboxSyncOptions){
-  const {db,id,account,receiver}=options;
+  const {db,id,account,receiver,mailbox}=options;
   const table=options.table??'zerux_email_mailbox_sync',leaseMs=options.leaseMs??60000,clock=options.now??Date.now;
   if(!db||!validName(id)||!validName(account)||!receiver||typeof receiver.poll!=='function'||
+    (mailbox!==undefined&&(typeof mailbox!=='string'||!mailbox||mailbox.length>255||/[\r\n\0]/.test(mailbox)))||
     !/^[a-z][a-z0-9_]{0,62}$/.test(table)||!Number.isSafeInteger(leaseMs)||leaseMs<3000||leaseMs>3600000)
     throw new TypeError('Invalid mailbox sync options');
-  const key='ims_'+createHash('sha256').update(JSON.stringify([id,account])).digest('hex');
+  // Preserve historical checkpoint keys for unscoped workers; new folders are isolated.
+  const key='ims_'+createHash('sha256').update(JSON.stringify(mailbox===undefined?[id,account]:[id,account,mailbox])).digest('hex');
   const timestamp=()=>{const v=clock();if(!Number.isSafeInteger(v)||v<0)throw new Error('Invalid mailbox sync clock');return v;};
-  const initial:MailboxSyncState={id,account,version:1,epoch:0,cursor:{afterUid:0},lease:null,status:'idle',pages:0,received:0,updatedAt:timestamp(),lastError:null};
+  const initial:MailboxSyncState={id,account,...(mailbox?{mailbox}:{}),version:1,epoch:0,cursor:{afterUid:0,...(mailbox?{mailbox}:{})},lease:null,status:'idle',pages:0,received:0,updatedAt:timestamp(),lastError:null};
   let ready:Promise<void>|undefined;
   const ensure=()=>ready??=(async()=>{const r=await db.createTable({table,ifNotExists:true,columns:[
     {name:'id',type:'varchar',length:68,primary:true,notNull:true},
@@ -38,7 +42,10 @@ export function createDatabaseMailboxSync(options:MailboxSyncOptions){
     if(!r?.ok||!Array.isArray(r.rows))throw new Error('Mailbox sync read failed');
     const row=r.rows[0] as Record<string,unknown>|undefined;if(!row)return null;
     const s=JSON.parse(String(row.payload_json)) as MailboxSyncState;
-    if(s.id!==id||s.account!==account||!Number.isSafeInteger(s.version)||s.version!==Number(row.version)||s.version<1||
+    if(s.id!==id||s.account!==account||
+      (mailbox!==undefined&&s.mailbox!==mailbox)||
+      (s.mailbox!==undefined&&s.cursor?.mailbox!==s.mailbox)||
+      !Number.isSafeInteger(s.version)||s.version!==Number(row.version)||s.version<1||
       !Number.isSafeInteger(s.epoch)||s.epoch<0||!Number.isSafeInteger(s.cursor?.afterUid)||s.cursor.afterUid<0||
       s.cursor.uidValidity!==undefined&&!/^\d+$/.test(s.cursor.uidValidity)||
       !Number.isSafeInteger(s.pages)||s.pages<0||!Number.isSafeInteger(s.received)||s.received<0||
@@ -81,14 +88,17 @@ export function createDatabaseMailboxSync(options:MailboxSyncOptions){
     timer.unref?.();
     try{
       const s=await read();if(!owns(s,lease))throw new Error('Mailbox sync lease lost');
-      const result=await receiver.poll(account,{cursor:{...s.cursor}});
+      const result=await receiver.poll(account,{cursor:{...s.cursor},...(mailbox?{mailbox}:{})});
       active=false;clearInterval(timer);await heartbeat;
       if(lost)throw lost;
-      if(!result?.nextCursor||!Number.isSafeInteger(result.nextCursor.afterUid)||result.nextCursor.afterUid<s.cursor.afterUid||
+      if(!result?.nextCursor||(mailbox!==undefined&&result.nextCursor.mailbox!==mailbox)||
+        (s.mailbox!==undefined&&result.nextCursor.mailbox!==s.mailbox)||
+        !Number.isSafeInteger(result.nextCursor.afterUid)||result.nextCursor.afterUid<s.cursor.afterUid||
         !/^\d+$/.test(result.nextCursor.uidValidity??'')||!Number.isSafeInteger(result.stored)||result.stored<0)
         throw new Error('Invalid receiver cursor or result');
       const latest=await read();if(!owns(latest,lease))throw new Error('Mailbox sync lease lost');
-      const t=timestamp();const next={...latest,status:'idle' as const,lease:null,cursor:result.nextCursor,
+      const t=timestamp();const next={...latest,...(result.nextCursor.mailbox?{mailbox:result.nextCursor.mailbox}:{}),
+        status:'idle' as const,lease:null,cursor:result.nextCursor,
         pages:latest.pages+1,received:latest.received+result.stored,updatedAt:t,lastError:null};
       if(!await cas(latest,next))throw new Error('Mailbox sync checkpoint lost');
       return {busy:false,state:publicState({...next,version:latest.version+1})};
@@ -104,7 +114,7 @@ export function createDatabaseMailboxSync(options:MailboxSyncOptions){
   /** Administrative reset after explicit investigation of UIDVALIDITY change. Never automatic. */
   async function resetCursor(){for(let i=0;i<15;i++){
     const s=await read(),t=timestamp();if(s.lease&&s.lease.expiresAt>t)throw new Error('Mailbox sync worker active');
-    const next={...s,epoch:s.epoch+1,cursor:{afterUid:0},lease:null,status:'idle' as const,updatedAt:t,lastError:null};
+    const next={...s,mailbox,epoch:s.epoch+1,cursor:{afterUid:0,...(mailbox?{mailbox}:{})},lease:null,status:'idle' as const,updatedAt:t,lastError:null};
     if(await cas(s,next))return publicState({...next,version:s.version+1});
   }throw new Error('Mailbox sync reset contention');}
   return {get:async()=>publicState(await read()),runOnce,resetCursor};

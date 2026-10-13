@@ -2,7 +2,7 @@ import type {EmailReceiver,InboundMessage,InboundStore} from './inbound.js';
 
 /** Server-side inbox API for custom UIs. Never publish this without a host identity/authorization check. */
 export type InboxOperation='list'|'read'|'search'|'poll'|'markSeen'|'markUnread'|'flag'|'unflag'|'folders'|'erase';
-export interface InboxAccess {operation:InboxOperation;account:string;messageId?:string;}
+export interface InboxAccess {operation:InboxOperation;account:string;messageId?:string;mailbox?:string;}
 export interface InboxApiOptions {
   store:InboundStore;
   /** Required. Resolve the current user/session and enforce account permissions for EVERY call. */
@@ -52,9 +52,11 @@ function condition(value:number|undefined,name:string){
 export function createInboxApi(options:InboxApiOptions){
   if(!options?.store||typeof options.authorize!=='function')throw new TypeError('Inbox API requires a store and authorization callback');
   const {store}=options;
-  async function allow(operation:InboxOperation,account:string,messageId?:string){
+  async function allow(operation:InboxOperation,account:string,messageId?:string,mailbox?:string){
     accountName(account);if(messageId)msgId(messageId);
-    if(await options.authorize({operation,account,...(messageId?{messageId}:{})})!==true)throw new Error('Inbox access denied');
+    if(mailbox!==undefined&&(typeof mailbox!=='string'||!mailbox||mailbox.length>255||/[\r\n\0]/.test(mailbox)))
+      throw new TypeError('Invalid inbox mailbox');
+    if(await options.authorize({operation,account,...(messageId?{messageId}:{}),...(mailbox?{mailbox}:{})})!==true)throw new Error('Inbox access denied');
   }
   async function scoped(account:string,id:string){
     const record=await store.get(msgId(id));
@@ -145,10 +147,10 @@ export function createInboxApi(options:InboxApiOptions){
       if(await options.canErase(structuredClone(message))!==true)throw new Error('Inbox erasure denied by retention policy');
       return store.erase(id,account);
     },
-    async poll(account:string){
-      await allow('poll',account);
+    async poll(account:string,mailbox?:string){
+      await allow('poll',account,undefined,mailbox);
       if(!options.receiver)throw new Error('Inbox receiver is not configured');
-      const result=await options.receiver.poll(account);
+      const result=await options.receiver.poll(account,mailbox===undefined?{}:{mailbox});
       // The host controls polling; do not expose parsed message bodies via this operation.
       return {account,protocol:result.protocol,scanned:result.scanned,stored:result.stored,
         duplicates:result.duplicates,oversized:result.oversized};

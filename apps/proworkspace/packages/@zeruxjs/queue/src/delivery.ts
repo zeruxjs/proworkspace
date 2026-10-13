@@ -135,7 +135,19 @@ export function createDurableEmailDeliveryProcessor(options:DurableEmailDelivery
     // The sender must check marketing consent again immediately before SMTP acceptance.
     // No heartbeat after 'sending': expiration is *uncertain*, never a replay trigger.
     try{
-      await options.send(id,record);
+      const provider=await options.send(id,record);
+      // New email manager callers disclose explicit SMTP envelope uncertainty.
+      // Legacy custom senders that return void remain responsible for their own verified result.
+      if(provider&&typeof provider==='object'&&'submissionStatus' in provider){
+        const reported=(provider as {submissionStatus:unknown}).submissionStatus;
+        if(!['accepted','partial','rejected','unknown'].includes(String(reported)))throw new Error('Invalid SMTP submission classification');
+        if(reported==='rejected'){await transition(id,token,'rejected');return {status:'rejected'};}
+        if(reported!=='accepted'){
+          await transition(id,token,'uncertain');
+          try{await options.onUncertain?.(id);}catch{/* No duplicate send */}
+          return {status:'uncertain'};
+        }
+      }
       await transition(id,token,'sent');
       return {status:'sent'};
     }catch{

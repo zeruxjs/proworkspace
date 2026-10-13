@@ -180,3 +180,16 @@ Implemented a strict workspace lock doctor and deterministic local workspace met
 ## Section 66 — Security policy and release-gate continuation (2026-10-13)
 
 Root `SECURITY.md` added with actual package versions and responsible vulnerability disclosure instructions. Added an isolated one-command release verifier and a fail-fast registry connectivity step; CI checks the security policy. Offline tests: 31 passed, 42 package contracts planned. **Blocked** at `npm ping` (`EAI_AGAIN`); 14 unresolved external dependency lock records prevent `npm ci`/clean all-workspace build. See `SECTION_66_RELEASE_GATE_SECURITY.md` for exact closure criteria.
+
+
+## Section 67 — IMAP/POP3 folder isolation, MIME and UID hardening (source delivered; live gate open)
+- Added explicit account IMAP folder allowlists, per-folder polling, and folder-bound UID cursors; added `pollConfiguredMailboxes()` without altering existing default polling API.
+- Added database-fenced per-mailbox sync checkpoints and cross-folder cursor validation, tested against two real SQLite connections.
+- Improved incoming UID/UIDL and MIME structure validation; over-limit attachment bytes are withheld from scanners, storage and JSON; maintained POP3 no-DELE behavior.
+- Custom Inbox API manual poll authorization now includes mailbox scope; optional live IMAP/POP3 TLS verification tests are provided, skipped unless real test-server credentials are supplied.
+- Email and Queue builds pass. Email suite: 116 passed, 2 skipped; Queue suite: 46 passed, 1 skipped. No failures. Live protocol, Redis, full npm clean-install and external database-cluster gates remain open.
+- See `SECTION_67_IMAP_MULTI_MAILBOX_HARDENING.md`.
+
+## Section 68 — Outbound SMTP, feedback and reputation correctness (13 October 2026)
+
+Implemented validated SMTP envelope acceptance statuses (`accepted`/`partial`/`rejected`/`unknown`), safe diagnostics, conservative durable-queue transitions, no automatic uncertain retries, explicit verified **pre-send-only** account failover, idempotency key/message fingerprint conflicts, tightened STARTTLS/DKIM validation, and fully prevalidated provider feedback batches (invalid payloads cannot mutate earlier records; conflicting event ID reuse rejected). Added opt-in live SMTP test file. Offline suites and affected builds pass; Section 66 clean install and live SMTP/provider gates remain open. See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`.

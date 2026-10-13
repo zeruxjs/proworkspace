@@ -1,6 +1,6 @@
 # ZeruxJS / ZyroJS / Zuix — package-only sections plan (Sections 1–85)
 
-**Plan version:** 2.0 (package-only scope revision) · **Prepared:** 13 October 2026 · **Current package source:** Section 66 (continuation; production gate blocked) · **Target final milestone:** **Section 85 (package-only stable-release decision)**
+**Plan version:** 2.0 (package-only scope revision) · **Prepared:** 13 October 2026 · **Current package source:** Section 68 (source delivered; live gates open) · **Target final milestone:** **Section 85 (package-only stable-release decision)**
 
 > **Short answer: 20 substantial sections remain — Sections 66 through 85.** This is a **finite, scope-frozen target**, not a guarantee that all engineering problems will be resolved in exactly 20 conversations. Each section can have multiple implementation/test passes **without creating a new section number**. A section is *finished* only when its acceptance criteria pass. If a blocking external dependency, production defect, or missing integration prevents a criterion from passing, record it as **blocked**, not as completed.
 
@@ -142,6 +142,8 @@ Status `Implemented / needs qualification` means code was reported or is present
 **Exit gate:** All supported workspaces install and compile from committed sources and lockfiles in a clean environment; smoke-test a booted ZeruxJS application. If the npm registry or a platform is unavailable, the section stays blocked with reproducible commands/evidence rather than claiming clean-build success.
 
 #### Section 67 — Production-quality IMAP/POP3 and custom inbox storage **[P0/P1]**
+
+**Status (13 October 2026): SOURCE HARDENING IMPLEMENTED / LIVE GATE OPEN.** Multi-folder allowlists, bound cursors, per-folder distributed checkpoints, parser/attachment/POP3 UIDL safety and authorization checks are tested against mocked protocols and SQLite. Email and Queue tests pass. Two live protocol tests are provided but skipped without test-server credentials and external npm packages. Section 66 clean-install certification is also still blocked; do not claim Section 67 production-complete until real integration acceptance passes. See `SECTION_67_IMAP_MULTI_MAILBOX_HARDENING.md`.
 
 **Work:** Finish real IMAP/POP3 interoperability, TLS/STARTTLS/OAuth rules where protocol supports them, incremental resume, multi-mailbox UID handling, safe timeouts and reconnects; MIME nesting/headers/attachments/CID, stream and size limits, HTML sanitation, malware/spam/advisory policy hooks, mailbox action semantics; validate all **three receiving modes**: JSON with no tables, package-created inbox table, host-mapped existing schema. Improve database-native pagination/search and account/tenant isolation; test callback replay and cursor guarantees.
 
@@ -328,3 +330,11 @@ On the next **“Continue”**, continue **Section 66: Reproducible workspace an
 ### Section 66 — security policy and final release gate evidence (2026-10-13)
 
 A root `SECURITY.md` now describes the actual experimental package versions, private reporting channels and best-effort triage targets. The release tool can run the entire registry-backed clean checkout, dependency lockfile resolution, package build and smoke suite in one transaction (`cd apps/proworkspace && npm run section66:finalize`). The npm-registry connectivity probe fails with `EAI_AGAIN` in the current environment; **31 tooling tests pass**, but the **14 unresolved dependencies** and clean-install/build gate mean **Section 66 is NOT completed**. Section 67 remains the next development section only after successful external clean-build verification. Detailed conditions: `SECTION_66_RELEASE_GATE_SECURITY.md`.
+
+## Section 68 — Outbound mail/feedback source implementation (2026-10-13)
+- Implemented SMTP envelope acceptance status classification and per-recipient attribution, no false reputation accepted increments for unknown recipients; PII-free operator diagnostics.
+- Durable queue now handles explicit `accepted` / `partial` / `rejected` / `unknown` from the sender conservatively, without replaying uncertain results; legacy custom senders remain compatible.
+- Added explicit `sendWithVerifiedFailover()` that may change transport **before submission only**; never retries after SMTP may have begun.
+- Bound in-process idempotency keys to message and tracking payload fingerprints, rejecting conflicting repeats; strict default STARTTLS and SMTP timeout/DKIM validation.
+- Signed webhook batches are completely validated before persistence and reject manual suppression events and conflicting event IDs; multi-store persistence remains nontransactional and requires idempotent retry.
+- Added opt-in SMTP connection and send smoke tests; they require a real configured server, registry-installed packages and a disposable test inbox. Live acceptance gate **OPEN**; Section 66 clean-install gate **OPEN**. See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`.
