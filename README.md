@@ -88,3 +88,7 @@ clean npm installs and database cluster certification remain pending.
 ### Section 68 — SMTP acceptance, verified feedback and reputation safeguards
 
 See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`: outbound envelope classifications distinguish SMTP acceptance from downstream delivery, uncertain/partial outcomes stay out of automatic resend, verified preflight SMTP fallback is explicit, signed provider feedback batches are validated in full before writes, and strict TLS policy defaults are enforced. Live SMTP/provider certification and the prior clean-install gate remain open.
+
+### Section 69 — Durable delivery outbox, crash recovery and CodeQL
+
+`@zeruxjs/queue` adds PII-free DB-backed publish intents, CAS-fenced dispatch, bounded pending-intent reconciliation and conservative expired-delivery recovery. Existing SMTP uncertainty and consent gates are preserved. A new `.github/workflows/codeql.yml` runs JavaScript/TypeScript and GitHub Actions security-and-quality scans independently of the unresolved npm clean-install gate. See [Section 69 technical report](SECTION_69_OUTBOX_RECOVERY_CODEQL.md). Section 66 release certification and live provider verification remain open.

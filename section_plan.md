@@ -338,3 +338,9 @@ A root `SECURITY.md` now describes the actual experimental package versions, pri
 - Bound in-process idempotency keys to message and tracking payload fingerprints, rejecting conflicting repeats; strict default STARTTLS and SMTP timeout/DKIM validation.
 - Signed webhook batches are completely validated before persistence and reject manual suppression events and conflicting event IDs; multi-store persistence remains nontransactional and requires idempotent retry.
 - Added opt-in SMTP connection and send smoke tests; they require a real configured server, registry-installed packages and a disposable test inbox. Live acceptance gate **OPEN**; Section 66 clean-install gate **OPEN**. See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`.
+
+### Section 69 — Delivery publish outbox and crash recovery (2026-10-13)
+
+Source implementation: durable PII-free DB publish intent (`pending/leased/published/abandoned`), versioned CAS worker claims with expiry and fencing, bounded due-only dispatch scans, stable BullMQ job IDs, optional marketing queue adapter, authorized lost-job redrive, pending-only missing-intent repair and conservative `claimed → pending` / `sending → uncertain` recovery. Added a standalone least-privilege CodeQL advanced-setup workflow for JS/TS and GitHub Actions with security-and-quality queries. Local SQLite and unit tests pass; independent DB/Redis commits are **not atomic** and sending state is **never** automatically retried. More information: `SECTION_69_OUTBOX_RECOVERY_CODEQL.md`.
+
+**Remaining gates:** Section 66 registry-backed clean install, live SMTP/BullMQ/Redis/DB-cluster testing, GitHub-hosted CodeQL execution, and Section 69 multi-connector validation. Next planned section: **Section 70 — complete marketing campaign orchestration and retention**. Keep the package-only Section 85 target and do not add AIO application work.

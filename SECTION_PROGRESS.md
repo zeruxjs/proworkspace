@@ -193,3 +193,11 @@ Root `SECURITY.md` added with actual package versions and responsible vulnerabil
 ## Section 68 — Outbound SMTP, feedback and reputation correctness (13 October 2026)
 
 Implemented validated SMTP envelope acceptance statuses (`accepted`/`partial`/`rejected`/`unknown`), safe diagnostics, conservative durable-queue transitions, no automatic uncertain retries, explicit verified **pre-send-only** account failover, idempotency key/message fingerprint conflicts, tightened STARTTLS/DKIM validation, and fully prevalidated provider feedback batches (invalid payloads cannot mutate earlier records; conflicting event ID reuse rejected). Added opt-in live SMTP test file. Offline suites and affected builds pass; Section 66 clean install and live SMTP/provider gates remain open. See `SECTION_68_SMTP_FEEDBACK_REPUTATION.md`.
+
+## Section 69 — Recoverable delivery publishing and security scanning (2026-10-13)
+
+- Added `createDatabaseDeliveryOutbox`, `createDeliveryOutboxDispatcher`, `createOutboxBackedEmailQueue`, `createDeliveryOutboxRedriver`, `createDeliveryOutboxJobProcessor`, `createEmailDeliveryRecoveryScanner`, and `createMissingEmailPublishIntentScanner` to `@zeruxjs/queue`.
+- Verified real SQLite dual-connection CAS fencing, Redis-outage persistence, Redis-accepted/DB-ack failure recovery, an authorized pending-only redrive, multi-page due scanning, campaign integration and conservative claimed/sending lease expiration.
+- Added `.github/workflows/codeql.yml` to scan TypeScript/JavaScript **and** GitHub Actions on push, PR, merge queue, weekly schedule and manual dispatch; quality+security suite, scoped permissions, no npm install required.
+- Source/test implementation is complete. Still *not* a cross-DB/Redis transaction or exactly-once SMTP guarantee. Section 66 clean-install and live Redis/SMTP gates remain unresolved.
+- Full details: `SECTION_69_OUTBOX_RECOVERY_CODEQL.md`.

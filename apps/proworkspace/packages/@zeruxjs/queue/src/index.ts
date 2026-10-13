@@ -411,3 +411,6 @@ export * from './performance.js';
 export * from './trends.js';
 export * from './history.js';
 export * from './history-gaps.js';
+
+export * from './outbox.js';
+export * from './recovery.js';
