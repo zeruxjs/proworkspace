@@ -1,44 +1,83 @@
 # Advanced CodeQL configuration for the ZeruxJS / ZyroJS / Zuix monorepo.
-# Scans application and package source without npm install: the Section 66
-# registry/lockfile release gate is checked separately in package-workspaces.yml.
+#
+# Scans JavaScript, TypeScript and GitHub Actions workflows.
+# Uses security-and-quality queries for comprehensive analysis.
+#
+# No npm install or application build is required.
+# The Section 66 registry/lockfile release gate is checked separately
+# in package-workspaces.yml.
+#
+# Branches: master, dev, test
+# Schedule: Daily at 00:00 UTC
+#
+# IMPORTANT:
+# Disable GitHub's default CodeQL setup before enabling this
+# advanced workflow to avoid conflicting configurations.
+
 name: CodeQL security and quality
 
 on:
   push:
+    branches:
+      - master
+      - dev
+      - test
+
   pull_request:
+    branches:
+      - master
+      - dev
+      - test
+
   merge_group:
     types: [checks_requested]
+
   schedule:
-    # Weekly full scan, Monday 00:00 UTC (scheduled runs use the default branch).
+    # Daily full security and quality scan at 00:00 UTC.
+    # Scheduled workflows run on the default branch.
     - cron: '0 0 * * *'
       timezone: 'UTC'
+
   workflow_dispatch:
 
-# CodeQL alone needs to upload code scanning results. No secrets, deployments,
-# packages or repository write permissions are needed.
+# Deny all token permissions by default.
+# Grant only the permissions needed by individual jobs.
 permissions: {}
 
 jobs:
   analyze:
     name: CodeQL / ${{ matrix.language }}
+
     runs-on: ubuntu-24.04
     timeout-minutes: 50
+
     permissions:
       actions: read
       contents: read
       security-events: write
+
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript, actions]
+        language:
+          - javascript-typescript
+          - actions
+
+    # Cancel older PR analysis runs for the same branch/language.
+    # Never cancel scheduled, push or merge queue scans.
     concurrency:
       group: codeql-${{ github.workflow }}-${{ github.ref }}-${{ matrix.language }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
     steps:
+      # Checkout without storing repository credentials.
       - name: Checkout source without credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # Initialize CodeQL with extended security and quality checks.
+      # No npm install or build is performed.
       - name: Initialize CodeQL (security and quality)
         uses: github/codeql-action/init@v4
         with:
@@ -46,8 +85,11 @@ jobs:
           build-mode: none
           config: |
             name: ProWorkspace CodeQL
+
             queries:
               - uses: security-and-quality
+
+            # Exclude generated code, dependencies and build output.
             paths-ignore:
               - '**/node_modules/**'
               - '**/dist/**'
@@ -55,6 +97,8 @@ jobs:
               - '**/coverage/**'
               - '**/.next/**'
               - '**/*.min.js'
+
+      # Analyze code and upload SARIF results to GitHub Code Scanning.
       - name: Analyze and upload SARIF
         uses: github/codeql-action/analyze@v4
         with:
