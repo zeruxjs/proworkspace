@@ -8,6 +8,8 @@ export interface CampaignDatabaseConnection {
   insert(input:any):Promise<CampaignDatabaseResult>|CampaignDatabaseResult;
   select(input:any):Promise<CampaignDatabaseResult>|CampaignDatabaseResult;
   update(input:any):Promise<CampaignDatabaseResult>|CampaignDatabaseResult;
+  delete?(input:any):Promise<CampaignDatabaseResult>|CampaignDatabaseResult;
+  createIndex?(input:any):Promise<CampaignDatabaseResult>|CampaignDatabaseResult;
 }
 /** Shared JSON document store. Atomic insert and versioned update are mandatory. */
 export function createDatabaseCampaignStore(db:CampaignDatabaseConnection,table='zerux_email_campaigns'):CampaignStore{

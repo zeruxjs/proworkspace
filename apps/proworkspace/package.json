@@ -20,7 +20,14 @@
     "test:analytics-reconciliation-sql-compiler": "node --test tests/integration/analytics-reconciliation-sql-compilation.test.mjs",
     "test:analytics-job-sqlite": "node --test tests/integration/analytics-job-sqlite.test.mjs",
     "test:analytics-job-sql-compiler": "node --test tests/integration/analytics-job-sql-compilation.test.mjs",
-    "test:queue": "node --test packages/@zeruxjs/cache-redis/test/*.test.mjs packages/@zeruxjs/queue/test/*.test.mjs packages/zeruxjs/test/queue-runtime.test.mjs"
+    "test:queue": "node --test packages/@zeruxjs/cache-redis/test/*.test.mjs packages/@zeruxjs/queue/test/*.test.mjs packages/zeruxjs/test/queue-runtime.test.mjs",
+    "deps:check": "node scripts/check-workspace-deps.mjs",
+    "contracts:check": "node scripts/check-workspace-contracts.mjs",
+    "deps:sync-local": "node scripts/check-workspace-deps.mjs --sync-local",
+    "build:verified": "npm run deps:check && npm run contracts:check && npm run build:workspaces",
+    "verify:clean": "node scripts/verify-clean-workspace.mjs",
+    "verify:source": "node scripts/verify-source-workspace.mjs",
+    "section66:finalize": "node scripts/finalize-section66.mjs"
   },
   "dependencies": {
     "minio": "^8.0.7",

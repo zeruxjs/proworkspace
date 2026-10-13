@@ -74,3 +74,109 @@ Introduced opt-in, same-origin authenticated queue operations pages and a redact
 ## Section 55 — Durable campaign planning, audience filters, signed bounce feedback
 
 Extended `@zeruxjs/email` with durable CAS campaign definitions/checkpointed audience paging, type-safe segmentation, per-message opt-in tracking separation, explicit consent/suppression checks, database-backed hard/soft bounce and complaint suppression, a host-signed provider feedback endpoint, best-effort internal Analytics campaign metrics, and a host-authenticated/per-campaign-authorized CSRF-protected campaign management page. `@zeruxjs/queue` adds ID-only `campaign.plan` worker integration and campaign/suppression checks in the durable mail delivery processor. SQLite multi-connection CAS integration and focused package/runtime tests added. No default public webhook, new mail tracking, or automatic campaign sending is enabled. See `SECTION_55_MARKETING_CAMPAIGNS_SUPPRESSION.md`. Full production platform and live Redis/multi-server provider certification remain outstanding.
+
+## Section 56 — Queue scheduling, email sender reputation and contact lists
+
+- Registered code-owned queue handlers and BullMQ Redis-durable `once`, `every`, `cron`, `list`, `remove` methods; repeat scheduling uses upsertJobScheduler.
+- Added Redis-coordinated worker rate limiter configuration to `@zeruxjs/queue` and framework startup typing.
+- Added database-backed provider-neutral reputation ledger, rolling bounce/complaint policy, authenticated feedback integration and pre-SMTP marketing health checks.
+- Added durable email contact-list store with CAS updates, list membership, traits and a stable campaign source cursor.
+- Email activity tracking stays opt-in and independent of consent. Missing provider feedback is explicitly labeled incomplete rather than assumed healthy.
+- Focused tests: 88 passing, 1 live Redis test skipped, 0 failing. Email and Queue TypeScript builds passed. Framework-wide TypeScript compile remains incomplete due to unresolved workspace imports.
+- Technical details: `SECTION_56_SCHEDULER_REPUTATION_CONTACTS.md`.
+
+### Section 56 continuation
+
+Hardened reputation scan-limit handling with one-row lookahead; optional soft-bounce warning/pausing thresholds and explicit sample sufficiency; version-fenced contact erasure on supported database connectors; and one-off BullMQ task cancellation. Added tests and kept independent email tracking unchanged. Detailed notes in `SECTION_56_SCHEDULER_REPUTATION_CONTACTS.md`.
+
+## Section 57 — Campaign delivery reporting
+
+Implemented a database-backed per-message CAS delivery store and bounded campaign reporting API (`@zeruxjs/queue`), optional authenticated campaign dashboard report and state visual (`@zeruxjs/email`), `ChartData` adapters (`@zeruxjs/reports`), and framework config typing for the opt-in report callback. SQLite integration and focused regressions verified. See `SECTION_57_CAMPAIGN_DELIVERY_REPORTING.md`.
+
+## Section 58 — Database-native campaign performance and verified outcomes
+
+- Added unbounded-by-row-scan database grouped campaign delivery totals, with a separate authenticated provider-outcome event ledger and replay conflict detection.
+- Exposed an optional whitelisted all-time campaign performance view and Reports chart adapter; daily/activity coverage is explicitly not computed in native mode.
+- Verified >100k synthetic delivery rows, 1,203 real SQLite delivery records, Mongo query translation mocks, and signed-provider feedback routing.
+- Preserved per-message activity tracking independently of consent and sender reputation. Live DB fleets/SMTP/Redis verification remain outstanding.
+
+## Section 59 — Database-native daily campaign trends
+
+Added `@zeruxjs/queue` bounded UTC-day grouped delivery state and provider-notification counts using the portable database AST; optional compound indexes for day queries; the authenticated `@zeruxjs/email` dashboard `view=trends` with strict PII-free projection and date inputs; and `@zeruxjs/reports` daily chart adapters. Unlike append-only histories, durable delivery state is categorized by its **latest update day**. Verified provider events are counted separately and never presented as unique recipient delivery or inbox placement. See `SECTION_59_DAILY_CAMPAIGN_TRENDS.md` for API and coverage constraints.
+
+## Section 60 — Dynamic campaigns and append-only observed email history
+
+- Added server-side function-based marketing campaign creation with one stored subject/content template, separately persisted recipients and JSON fields, selectable SMTP accounts, explicit tracking, delayed BullMQ enqueues, unique campaign codes, previews and DB-keyset pagination.
+- Added reusable `{{variable}}` registration and rendering to the core ZeruxJS framework with async resolvers, HTML-safe substitutions, safe paths and bounded output.
+- Added version-keyed append-only observed delivery-state history and DB-native UTC daily transition trends; history correctly discloses non-atomic write coverage.
+- Included SQLite integrations, existing Email/Queue regressions and one skipped live Redis check. See SECTION_60_DYNAMIC_CAMPAIGNS_DELIVERY_HISTORY.md for API and limitations.
+
+## Section 61 — Expanded marketing campaign operations
+
+- Function-first campaign API now provides opt-in deferred enqueue, streaming audience import, safe CSV parser, idempotent append, database counts and lookahead pagination, preview pages, pause/resume, and pending-only redrive.
+- Variable registry now shares resolver values across subject/HTML/text in one recipient render.
+- Delivery history now supports privacy-safe latest-state coverage audit without fabricating transitions.
+- Optional session/CSRF-authorized marketing UI with per-campaign/recipient permissions and framework route integration.
+- Optional SMTP account validation and best-effort PII-free lifecycle audit callbacks.
+- See `SECTION_61_CAMPAIGN_OPERATIONS_STREAMED_IMPORTS.md` for implementation, configuration, verification and operational limits.
+
+## Section 62 — Distributed marketing import and history/privacy operations
+
+- Added `createMarketingImportJob()` with a DB-backed CAS checkpoint, source-revision identity, bounded single-page runs, heartbeat/lease fencing, crash replay, failed-page classification and cancellation; added BullMQ-only-ID import worker/enqueue adapters.
+- Added an immutable `zerux_email_history_gaps` observation ledger, bounded gap scanner and explicit latest-transition lookup; distinguishes observed gaps from actual historical transitions.
+- Added `sweepMailingContactRetention()` with dry-run default, host approval, version-fenced deletions, aborts, bounded continuation and PII-free counters; intentionally limited to the contact-list table.
+- Focused real SQLite tests cover two-connection import recovery, stale leases, replay, contact deletion and journal-gap identification. Full core framework compilation still requires existing workspace dependency fixes.
+- See `SECTION_62_DISTRIBUTED_IMPORT_HISTORY_PRIVACY.md`.
+
+## Section 63 — IMAP/POP3 inbound email, framework integration and feedback boundary
+
+- Added `@zeruxjs/email` `createEmailReceiver` with secure IMAP and POP3 incoming accounts; read-only polling, folder listing, explicit IMAP `markSeen` with UIDVALIDITY fencing, MIME parsing, sanitized HTML and optional private attachment storage.
+- Added database-backed, primary-key-unique durable inbox with bounded record sizes, paginated reads, replay suppression across workers, and an opaque-ID-only queue polling adapter.
+- Added a conservative inbound delivery-notification classifier behind mandatory host verification, without allowing forged DSNs to modify reputation or suppression state.
+- ZeruxJS email startup supports combined SMTP/receive or receive-only accounts using a named DB connector and generation-scoped shutdown.
+- Email and Queue builds and selected regression suites passed. Live inbound servers and npm registry resolution were unavailable. See `SECTION_63_INBOUND_IMAP_POP3.md`.
+
+## Section 64 — Inbound storage choice, mailbox sync, safety and retention
+- `@zeruxjs/email`: storage-optional JSON IMAP/POP3 receiving, host-mapped persistence callbacks, opt-in bounded base64 attachments, expanded MIME metadata.
+- Safety: advisory spam/phishing/attachment-violation flags, optional external scanners with fail-closed errors and withheld unsafe binary outputs.
+- IMAP: bounded UID-range incremental polling, UIDNEXT/UIDVALIDITY fencing; SQLite-backed distributed checkpoint/heartbeat/worker takeover; safe queue adapter.
+- Inbox: bounded local-only retention with dry-run and host legal-hold approval; optional database erase; no remote message deletion.
+- Framework: optional JSON-mode receive config without a named DB, or a host store with own schema.
+- See `SECTION_64_INBOUND_JSON_SYNC_SECURITY.md` for APIs, security and incomplete live certification.
+
+## Section 65 — Inbox schema mapping, persistent/JSON modes, and private UI APIs
+
+- Preserved lazy package-owned `zerux_email_inbox` creation in persistent mode, including stable unique remote IDs, account-scoped reads and local-only erasure.
+- Added schema-mapped database storage for host-owned inbox tables, with no DDL by default, validated table/column identifiers, and optional metadata columns.
+- Added account-authorized Inbox API with paginated summary listing, scan-bounded search, full message detail, folders, polling, read/unread/star flags and explicitly approved local deletion.
+- Extended IMAP UIDVALIDITY-fenced flag operations, and optional runtime `email.receive.api` registration when a persistent store is supplied.
+- Kept JSON mode storage-free, with optional host onMessage storage callback and original parsing/security features.
+- See `SECTION_65_INBOX_STORAGE_UI_API.md` for configuration and validation limits.
+
+
+## Section 66 — package workspace reproducibility (in progress, blocked)
+
+Implemented a strict workspace lock doctor and deterministic local workspace metadata reconciliation for all 42 packages; a non-destructive clean checkout installer/builder; CI gates; CLI lint typing/failure handling fix; workspace-graph and HTTP smoke tests. **Blocked** on 14 missing external lockfile resolutions and npm registry EAI_AGAIN. See `SECTION_66_WORKSPACE_DEPENDENCIES.md`. Do not advance Section 67 or mark clean-build gate passed until `npm ci && npm run build:workspaces && npm run verify:clean` succeeds.
+
+
+## Section 66 continuation (13 October 2026) — workspace-source/lockfile hardening
+
+- Added isolated complete-source snapshots for `verify:clean`, including app routes, root config and public assets, while excluding `.env*` secrets (other than `.env.example`), symlinks, and generated artifacts.
+- Added offline `npm run verify:source` for checking clean source snapshots, 42-package build planning, and tooling tests **without** claiming npm ci or production verification.
+- Tightened lock diagnostics for transitive dependency edges, HTTP tarball resolutions and invalid integrity entries; local sync now removes obsolete workspace links without altering third-party lock records.
+- Workspace tooling tests: 18 passed / 0 failed. Isolated source preflight: passed.
+- Clean-install/full 42-package build: **BLOCKED**, 14 missing third-party lock resolutions (15 dependency edges), npm registry inaccessible (`EAI_AGAIN`).
+- Work remains within Section 66 until a network-enabled `npm ci`, all-package build and clean checkout test pass.
+
+## Section 66 third continuation (13 October 2026) — public exports and bounded builds
+
+- Found and fixed a missing file promised by the `zeruxjs/schema/schema.config.json` public package export: added an extensible, serializable-configuration JSON Schema, without changing the TypeScript runtime contract.
+- Added `npm run contracts:check`, source-public-export contract auditing across all 42 workspaces and checks in source preflight, clean-install gate and CI.
+- Build orchestration now supports bounded per-workspace timeouts (`--timeout-ms`, default 300000), aborts npm process groups on POSIX, and rejects generated symlink entrypoints; the full clean-checkout workspace build has a separate 45-minute upper bound.
+- **25 workspace tooling tests passed**, all 42 package source contracts passed, and isolated `verify:source` passed with 1,523 files. `verify:clean -- --offline` correctly refuses the incomplete lockfile. **Section 66 remains blocked** on 14 missing registry resolutions; `npm ping` still returns `EAI_AGAIN`.
+- See `SECTION_66_CONTINUATION_EXPORTS_TIMEOUTS.md` for evidence and release-gate commands.
+
+
+## Section 66 — Security policy and release-gate continuation (2026-10-13)
+
+Root `SECURITY.md` added with actual package versions and responsible vulnerability disclosure instructions. Added an isolated one-command release verifier and a fail-fast registry connectivity step; CI checks the security policy. Offline tests: 31 passed, 42 package contracts planned. **Blocked** at `npm ping` (`EAI_AGAIN`); 14 unresolved external dependency lock records prevent `npm ci`/clean all-workspace build. See `SECTION_66_RELEASE_GATE_SECURITY.md` for exact closure criteria.

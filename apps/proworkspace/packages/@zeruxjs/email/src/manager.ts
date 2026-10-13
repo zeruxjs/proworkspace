@@ -131,7 +131,24 @@ export function createEmailManager(options:EmailManagerOptions){
         if(blocked)throw Object.assign(new Error('Recipient suppressed from marketing'),{code:'EMAIL_SUPPRESSED'});
       }
     }
+    // Provider-independent account health gate, executed immediately before SMTP acceptance.
+    if(options.reputation){
+      let decision;
+      try{decision=await options.reputation.checkBeforeSend(name,merged.purpose!);}
+      catch(error){
+        if(marketing)throw Object.assign(new Error('Reputation store unavailable'),{code:'EMAIL_REPUTATION_UNAVAILABLE'});
+        try{options.onReputationError?.(error);}catch{/* Logging must not interrupt transactional mail */}
+      }
+      if(decision?.allowed===false)throw Object.assign(new Error('Sender reputation paused'),{code:'EMAIL_REPUTATION_PAUSED'});
+    }
     const result=redactResult(await transport.sendMail(data),name);
+    if(options.reputation){
+      // Accepted SMTP recipients only. Do not retry an accepted email because telemetry failed.
+      for(const address of result.accepted){
+        try{await options.reputation.recordAccepted(name,address,result.messageId??trackingId);}
+        catch(error){try{options.onReputationError?.(error);}catch{/* report only */}}
+      }
+    }
     if(trackingEnabled&&options.tracking?.onSent){
       // Mail has been accepted. Telemetry failures must not trigger a duplicate send/retry.
       try{await options.tracking.onSent({id:trackingId,account:name,message:merged,result});}

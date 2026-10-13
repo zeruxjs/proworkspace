@@ -158,3 +158,7 @@ export type { ProjectBuildOptions, ProductionBuildManifest } from "./commands/pr
 export { redactManifestConfig } from "./bootstrap/manifest-config.js";
 
 export { createRequestLifecycle } from "./bootstrap/request-lifecycle.js";
+
+/** Section 60: framework-wide, safe, application-configurable {{variable}} rendering. */
+export {createVariableRegistry,variables,registerVariable,renderVariables} from './variables.js';
+export type {VariableContext,VariableResolver,VariableEscape,VariableRenderOptions,VariableRegistry} from './variables.js';

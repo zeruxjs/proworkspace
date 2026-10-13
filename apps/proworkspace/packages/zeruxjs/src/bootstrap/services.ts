@@ -158,7 +158,7 @@ export interface QueueStartupConfig {
   redis: {url?:string;host?:string;port?:number;username?:string;password?:string;db?:number;tls?:Record<string,unknown>};
   prefix?:string;
   queues: Array<string | {name:string;defaultJobOptions?:Record<string,unknown>}>;
-  workers?:Record<string,{processor:(job:unknown)=>Promise<unknown>|unknown;concurrency?:number;autorun?:boolean;lockDuration?:number}>;
+  workers?:Record<string,{processor:(job:unknown)=>Promise<unknown>|unknown;concurrency?:number;autorun?:boolean;lockDuration?:number;limiter?:{max:number;duration:number}}>;
   readyTimeoutMs?:number;
   shutdownGraceMs?:number;
   onWorkerError?:(queue:string,error:unknown)=>void;
@@ -180,10 +180,43 @@ export interface QueueStartupConfig {
 }
 export interface EndpointProvider { routes(): ServiceHttpRoute[] }
 export interface EmailStartupConfig {
-  accounts: Array<Record<string, unknown>>;
+  accounts?: Array<Record<string, unknown>>;
+  /** Optional receive-only or combined SMTP/IMAP/POP3 runtime. Inbound credentials are server-only. */
+  receive?: {
+    enabled?:boolean;
+    /** Required only for the built-in persistent inbox. */
+    database?:string;
+    table?:string;
+    /** Existing application-owned inbox table mapping. No schema changes unless createTable=true. */
+    mapping?:{table:string;createTable?:boolean;columns?:{id?:string;account?:string;payload?:string;subject?:string;mailbox?:string;receivedAt?:string;from?:string}};
+    /** json returns parsed messages without creating inbox tables. */
+    mode?:'json'|'persist';
+    /** Host-provided storage mapping can replace the built-in ZeruxJS table. */
+    store?:{get:(id:string)=>Promise<unknown>;put:(message:unknown)=>Promise<boolean>;page:(account:string,cursor:string|null,limit:number)=>Promise<unknown>;erase?:(id:string,account:string)=>Promise<boolean>};
+    /** Optional server-only inbox UI API. Never enabled without a host authorization callback. */
+    api?:{
+      authorize:(access:{operation:'list'|'read'|'search'|'poll'|'markSeen'|'markUnread'|'flag'|'unflag'|'folders'|'erase';account:string;messageId?:string})=>boolean|Promise<boolean>;
+      canErase?:(message:unknown)=>boolean|Promise<boolean>;
+    };
+    onMessage?:(message:unknown)=>Promise<void>|void;
+    /** Host-provided scanners; failures stop the poll instead of claiming a clean scan. */
+    inspectRaw?:(context:{account:string;raw:Buffer})=>Promise<'clean'|'spam'|'phishing'|'malware'|'review'>;
+    inspectAttachment?:(context:{account:string;messageId:string;filename:string;content:Buffer})=>Promise<'clean'|'suspicious'|'blocked'>;
+    saveAttachment?:(context:{account:string;messageId:string;attachment:unknown;content:Buffer})=>Promise<string>;
+    attachmentContent?:'metadata'|'base64';
+    maxInlineAttachmentBytes?:number;
+    accounts?:Array<Record<string,unknown>>;
+    /** If omitted, each sending account's `receive` config is used. */
+  };
   defaultAccount?: string;
   maxRecipients?: number;
   marketingSuppression?:{isSuppressed:(address:string)=>Promise<boolean>};
+  /** Opt-in, durable, per-SMTP-account sender reputation. Connector name is resolved server-side. */
+  reputation?:{enabled?:boolean;database:string;table?:string;policy?:{
+    windowMs?:number;minimumAccepted?:number;warnBouncePercent?:number;pauseBouncePercent?:number;
+    warnComplaintPercent?:number;pauseComplaintPercent?:number;warnSoftBouncePercent?:number;pauseSoftBouncePercent?:number;
+    protectTransactional?:boolean;scanLimit?:number
+  }};
   tracking?: EmailTrackingStartupConfig;
   preferences?: EmailPreferencesStartupConfig;
   /** Optional trusted campaign admin UI, not enabled by default. */
@@ -191,9 +224,25 @@ export interface EmailStartupConfig {
   marketingFeedback?: {
     enabled?:boolean;
     suppression:{recordFeedback:(event:any)=>Promise<unknown>};
+    feedbackAccount?:(event:any)=>string;
+    /** Optional provider-verified delivery/deferred/bounce/complaint event ledger. */
+    providerOutcomes?:{record:(event:{eventId:string;provider:string;campaignId:string;messageId:string;kind:'delivered'|'deferred'|'hard-bounce'|'soft-bounce'|'complaint';occurredAt:number})=>Promise<boolean>};
+    /** Must resolve attribution and stable event time from trusted provider metadata. */
+    feedbackDelivery?:(event:any)=>{provider:string;campaignId:string;messageId:string;occurredAt:number};
     verifySignature:(body:Uint8Array,headers:Headers)=>boolean|Promise<boolean>;
     parse:(body:Uint8Array,headers:Headers)=>unknown|Promise<unknown>;
     path?:string;maxBodyBytes?:number;timeoutMs?:number;
+  };
+  /** Optional protected UI for one-template function-first marketing campaigns. */
+  marketingCampaignDashboard?: {
+    service:unknown;
+    authorize:(request:Request)=>unknown|Promise<unknown>;
+    authorizeCampaign:(principal:unknown,code:string,action:string)=>boolean|Promise<boolean>;
+    authorizeCreate:(principal:unknown)=>boolean|Promise<boolean>;
+    authorizeList?:(principal:unknown)=>boolean|Promise<boolean>;
+    verifyCsrf:(request:Request,principal:unknown)=>boolean|Promise<boolean>;
+    csrfToken:(request:Request,principal:unknown)=>string|Promise<string>;
+    prefix?:string;publicOrigin?:string;
   };
   campaignDashboard?: {
     /** Host-provided CampaignPlanner; strongly typed by @zeruxjs/email itself. */
@@ -202,6 +251,11 @@ export interface EmailStartupConfig {
     verifyCsrf:(request:Request,principal:unknown)=>boolean|Promise<boolean>;
     csrfToken:(request:Request,principal:unknown)=>string|Promise<string>;
     authorizeCampaign:(principal:unknown,id:string,action:string)=>boolean|Promise<boolean>;
+    /** Optional PII-free, bounded delivery report callback; scope enforced by authorizeCampaign. */
+    deliveryReport?:(campaignId:string)=>Promise<unknown>;
+    performanceReport?:(campaignId:string)=>Promise<unknown>;
+    /** Opt-in native UTC-day report, guarded by per-campaign dashboard authorization. */
+    trendsReport?:(campaignId:string,from:string,to:string)=>Promise<unknown>;
     prefix?:string;publicOrigin?:string;
   };
 }
@@ -212,7 +266,7 @@ export interface ServiceInitializers {
   cache(config: ZeruxConfig): Promise<unknown>;
   files(config: FilesStartupConfig, rootDir: string): Promise<unknown>;
   analytics(config: AnalyticsStartupConfig, database: unknown): Promise<unknown>;
-  email(config: EmailStartupConfig, files: unknown, analytics: unknown, tracking?: unknown, preferences?: unknown): Promise<unknown>;
+  email(config: EmailStartupConfig, files: unknown, analytics: unknown, tracking?: unknown, preferences?: unknown, reputation?:unknown, database?:unknown): Promise<unknown>;
   emailPreferences(config: EmailPreferencesStartupConfig): Promise<EndpointProvider>;
   analyticsCollector(config: AnalyticsCollectorStartupConfig, analytics: unknown): Promise<EndpointProvider>;
   emailTracking(config: EmailTrackingStartupConfig, analytics: unknown): Promise<EndpointProvider>;
@@ -305,11 +359,43 @@ const defaults: ServiceInitializers = {
     const {enabled: _enabled, ...settings} = config;
     return createEmailPreferenceService(settings);
   },
-  async email(config, files, _analytics, tracking, preferences) {
+  async email(config, files, _analytics, tracking, preferences, reputation, database) {
     const moduleId = '@zeruxjs/email';
-    const { createEmailManager } = await import(moduleId) as { createEmailManager: (config: unknown) => unknown };
-    const { tracking: _trackingConfig, preferences: _preferencesConfig, campaignDashboard: _campaignDashboard, marketingFeedback: _marketingFeedback, ...settings } = config;
-    return createEmailManager({ ...settings, files, tracking, preferences });
+    const { createEmailManager, createEmailReceiver, createDatabaseInboxStore, createMappedDatabaseInboxStore, createInboxApi } = await import(moduleId) as {
+      createEmailManager:(config:unknown)=>any;
+      createEmailReceiver:(config:unknown)=>any;
+      createDatabaseInboxStore:(db:unknown,table?:string)=>unknown;
+      createMappedDatabaseInboxStore:(db:unknown,config:unknown)=>unknown;
+      createInboxApi:(config:unknown)=>unknown;
+    };
+    const { tracking: _trackingConfig, preferences: _preferencesConfig, campaignDashboard: _campaignDashboard, marketingCampaignDashboard: _marketingCampaignDashboard, marketingFeedback: _marketingFeedback, reputation: _reputationConfig, receive: receiveConfig, ...settings } = config;
+    const incomingFromAccounts=(settings.accounts??[]).filter(a=>a.receive&&typeof a.receive==='object').map(a=>({name:a.name,...(a.receive as Record<string,unknown>)}));
+    const sendingAccounts=(settings.accounts??[]).filter(a=>a.smtp||a.transport);
+    const manager=sendingAccounts.length?createEmailManager({...settings,accounts:sendingAccounts,files,tracking,preferences,reputation}):null;
+    if(receiveConfig?.enabled!==false && (receiveConfig?.accounts?.length||incomingFromAccounts.length)){
+      let store=receiveConfig?.store;
+      const receiveMode=receiveConfig?.mode??'persist';
+      if(receiveMode!=='json'&&receiveMode!=='persist')throw new Error('Invalid email receive mode');
+      if(receiveMode==='persist'&&!store){
+        if(!receiveConfig?.database||typeof receiveConfig.database!=='string')throw new Error('Persistent email receive requires a named database connector or host inbox store');
+        const runtimeDatabase=database as {getConnectionFacade?:(name:string)=>unknown}|undefined;
+        const connector=runtimeDatabase?.getConnectionFacade?.(receiveConfig.database);
+        if(!connector)throw new Error('Email receive requires an available named database connector');
+        store=(receiveConfig?.mapping
+          ? createMappedDatabaseInboxStore(connector,receiveConfig.mapping)
+          : createDatabaseInboxStore(connector,receiveConfig?.table)) as typeof store;
+      }
+      const inbound=createEmailReceiver({accounts:receiveConfig?.accounts?.length?receiveConfig.accounts:incomingFromAccounts,
+        mode:receiveMode,store,onMessage:receiveConfig?.onMessage,
+        inspectRaw:receiveConfig?.inspectRaw,inspectAttachment:receiveConfig?.inspectAttachment,saveAttachment:receiveConfig?.saveAttachment,
+        attachmentContent:receiveConfig?.attachmentContent,maxInlineAttachmentBytes:receiveConfig?.maxInlineAttachmentBytes});
+      const inbox=store&&receiveConfig?.api ? createInboxApi({store,receiver:inbound,...receiveConfig.api}) : undefined;
+      if(receiveConfig?.api&&!store)throw new Error('The inbox UI API requires a persistent or host-defined inbox store');
+      if(!manager)return {receive:inbound,...(inbox?{inbox}:{}),async close(){await inbound.close();}};
+      return {...manager,receive:inbound,...(inbox?{inbox}:{}),async close(){await inbound.close();await manager.close();}};
+    }
+    if(!manager)throw new Error('Email requires an SMTP sending account or a configured receive account');
+    return manager;
   }
 };
 
@@ -408,10 +494,22 @@ export async function initializeRuntimeServices(config: ZeruxConfig, rootDir: st
       preferences = await start.emailPreferences(email.preferences);
       scope.addHttpRoutes('email', preferences.routes());
     }
+    let reputation: unknown;
+    if(email?.reputation?.enabled===true){
+      const manager=scope.get('database') as {getConnectionFacade?:(slug:string)=>unknown}|undefined;
+      if(!manager?.getConnectionFacade)throw new Error('Email reputation requires a configured database connector');
+      const connection=manager.getConnectionFacade(email.reputation.database);
+      const moduleId='@zeruxjs/email';
+      const {createEmailReputationService,createDatabaseReputationLedger}=await import(moduleId) as {
+        createEmailReputationService:(input:unknown)=>unknown;
+        createDatabaseReputationLedger:(db:unknown,table?:string)=>unknown;
+      };
+      reputation=createEmailReputationService({ledger:createDatabaseReputationLedger(connection,email.reputation.table),policy:email.reputation.policy});
+    }
     if (email?.marketingFeedback?.enabled===true) {
       const moduleId='@zeruxjs/email';
       const {createMarketingFeedbackEndpoint}=await import(moduleId) as {createMarketingFeedbackEndpoint:(config:unknown)=>EndpointProvider};
-      scope.addHttpRoutes('email',createMarketingFeedbackEndpoint(email.marketingFeedback).routes());
+      scope.addHttpRoutes('email',createMarketingFeedbackEndpoint({...email.marketingFeedback,...(reputation?{reputation}:{})}).routes());
     }
     if (email?.campaignDashboard) {
       const moduleId='@zeruxjs/email';
@@ -419,7 +517,12 @@ export async function initializeRuntimeServices(config: ZeruxConfig, rootDir: st
       const dashboard=createCampaignDashboard(email.campaignDashboard);
       scope.addHttpRoutes('email',dashboard.routes());
     }
-    if (email) scope.add('email', await start.email(email, scope.get('files'), scope.get('analytics'), tracking, preferences));
+    if (email?.marketingCampaignDashboard) {
+      const moduleId='@zeruxjs/email';
+      const {createMarketingCampaignDashboard}=await import(moduleId) as {createMarketingCampaignDashboard:(config:unknown)=>EndpointProvider};
+      scope.addHttpRoutes('email',createMarketingCampaignDashboard(email.marketingCampaignDashboard).routes());
+    }
+    if (email) scope.add('email', await start.email(email, scope.get('files'), scope.get('analytics'), tracking, preferences,reputation,scope.get('database')));
     return scope;
   } catch (error) {
     try { await scope.close(); } catch { /* Preserve initialization failure. */ }

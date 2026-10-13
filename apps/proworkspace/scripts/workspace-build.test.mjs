@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverWorkspaces, planWorkspaces, executeWorkspacePlan } from './workspace-graph.mjs';
-import { parseBuildOptions, runWorkspaceBuild, verifyWorkspaceArtifacts } from './workspace-build.mjs';
+import { parseBuildOptions, runWorkspaceBuild, verifyWorkspaceArtifacts, runNpmWorkspaceBuild } from './workspace-build.mjs';
 
 function fixture(defs) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zerux-workspaces-'));
@@ -94,4 +94,37 @@ test('export map verification includes subpath declarations, not only main', () 
     assert.ok(result.some(item => item.includes('extra.d.ts')));
     assert.ok(result.some(item => item.includes('extra.js')));
   } finally { f.close(); }
+});
+
+
+test('build CLI validates finite per-package timeout', () => {
+  assert.equal(parseBuildOptions(['--timeout-ms', '3500']).timeoutMs, 3500);
+  assert.throws(() => parseBuildOptions(['--timeout-ms', 'abc']), /timeout/);
+  assert.throws(() => parseBuildOptions(['--timeout-ms', '0']), /timeout/);
+  assert.throws(() => parseBuildOptions(['--timeout-ms', '3600001']), /timeout/);
+});
+
+test('hung npm workspace build times out with a diagnostic and terminates', async t => {
+  const f = fixture({ alpha: [] });
+  try {
+    const manifestPath = path.join(f.root, 'packages/alpha/package.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath));
+    manifest.scripts.build = `${JSON.stringify(process.execPath)} -e "setInterval(() => {}, 1000)"`;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    await assert.rejects(runNpmWorkspaceBuild(f.root, 'alpha', undefined, 400), /Build timed out/);
+  } finally { f.close(); }
+});
+
+
+test('export verification rejects symlinked generated entrypoints', t => {
+  const f = fixture({ alpha: [] });
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'zerux-external-build-'));
+  try {
+    fs.mkdirSync(path.join(f.root, 'packages/alpha/dist'), { recursive: true });
+    const destination = path.join(outside, 'external.js');
+    fs.writeFileSync(destination, 'export {}');
+    try { fs.symlinkSync(destination, path.join(f.root, 'packages/alpha/dist/index.js')); }
+    catch (error) { if (error.code === 'EPERM') return t.skip('Platform disallows test symlinks'); throw error; }
+    assert.ok(verifyWorkspaceArtifacts(f.entries, ['alpha']).some(x => x.includes('dist/index.js')));
+  } finally { f.close(); fs.rmSync(outside, { recursive: true, force: true }); }
 });

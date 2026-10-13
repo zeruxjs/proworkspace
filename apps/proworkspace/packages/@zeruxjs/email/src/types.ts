@@ -42,7 +42,10 @@ export interface TransportLike {
   verify?():Promise<boolean>;
   close?():void|Promise<void>;
 }
-export interface EmailAccount {name:string; smtp?:SmtpSettings;transport?:TransportLike;defaults?:Partial<EmailMessage>;maxRecipients?:number;enabled?:boolean}
+export interface EmailAccount {name:string; smtp?:SmtpSettings;transport?:TransportLike;
+  /** Optional incoming side of this logical account, started through ZeruxJS email.receive. */
+  receive?:Omit<import('./inbound.js').IncomingAccount,'name'>;
+  defaults?:Partial<EmailMessage>;maxRecipients?:number;enabled?:boolean}
 export interface EmailResult {account:string;messageId?:string;accepted:string[];rejected:string[];response?:string;skipped?:boolean;reason?:string;trackingId?:string}
 export interface EmailManagerOptions {
   accounts:EmailAccount[];defaultAccount?:string;maxRecipients?:number;
@@ -64,6 +67,12 @@ export interface EmailManagerOptions {
     isSubscribed(address:EmailAddress):Promise<boolean>;
     makeUnsubscribeUrl(address:EmailAddress):string;
   };
+  /** Shared, provider-neutral account reputation guard. Marketing blocks on read errors. */
+  reputation?: {
+    checkBeforeSend:(account:string,purpose:'marketing'|'transactional')=>Promise<{allowed:boolean}>;
+    recordAccepted:(account:string,email:string,messageId:string)=>Promise<boolean|unknown>;
+  };
+  onReputationError?:(error:unknown)=>void;
   onTrackingError?:(error:unknown)=>void;
 }
 export interface RecipientRule {action:'allow'|'block';pattern:string;reason?:string;account?:string}

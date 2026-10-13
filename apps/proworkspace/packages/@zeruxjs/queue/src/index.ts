@@ -3,6 +3,8 @@ import {createQueueDashboard, type QueueDashboardOptions} from './dashboard.js';
 export {createQueueDashboard} from './dashboard.js';
 export type {QueueDashboardOptions} from './dashboard.js';
 export * from './delivery.js';
+export * from './scheduling.js';
+import {createQueueTaskScheduler} from './scheduling.js';
 import { createBullMQRedisOptions, type RedisConnectionSettings } from '@zeruxjs/cache-redis';
 
 export type JobData = Record<string, unknown>;
@@ -12,6 +14,7 @@ export interface QueueJob {
   progress?: unknown; updateProgress?(progress: number | object): Promise<void>;
   timestamp?: number; processedOn?: number; finishedOn?: number;
   getState?(): Promise<string>; retry?(state?: 'failed' | 'completed'): Promise<void>;
+  remove?(): Promise<void>;
 }
 export interface QueueJobOptions {
   jobId?: string; delay?: number; priority?: number; attempts?: number;
@@ -21,7 +24,11 @@ export interface QueueJobOptions {
   repeat?: {every?:number;pattern?:string;limit?:number;immediately?:boolean};
   deduplication?: {id:string;ttl?:number};
 }
-export interface QueueWorkerOptions { concurrency?: number; autorun?: boolean; lockDuration?: number; }
+export interface QueueWorkerOptions {
+  concurrency?: number; autorun?: boolean; lockDuration?: number;
+  /** BullMQ Redis-coordinated limit, shared by all workers for the same queue. */
+  limiter?:{max:number;duration:number};
+}
 export interface QueueDefinition {
   name:string;
   defaultJobOptions?:QueueJobOptions;
@@ -72,6 +79,9 @@ export interface BullQueueLike {
   addBulk(jobs:Array<{name:string;data:JobData;opts?:QueueJobOptions}>):Promise<BullJobLike[]>;
   getJob(id:string):Promise<BullJobLike | undefined | null>;
   getJobCounts(...states:string[]):Promise<Record<string,number>>;
+  upsertJobScheduler?(id:string,repeat:Record<string,unknown>,template:{name:string;data:JobData;opts:QueueJobOptions}):Promise<BullJobLike>;
+  removeJobScheduler?(id:string):Promise<boolean>;
+  getJobSchedulers?(start:number,end:number,asc?:boolean):Promise<Array<Record<string,unknown>>>;
   pause():Promise<void>; resume():Promise<void>;
   waitUntilReady():Promise<unknown>;
   getJobs?(states:string[],start:number,end:number,asc?:boolean):Promise<BullJobLike[]>;
@@ -141,6 +151,7 @@ export async function createQueueService(config:QueueServiceConfig, injected?:Bu
     if(!defined.has(name))throw new TypeError(`Worker targets unknown queue ${name}`);
     const w=config.workers![name];if(typeof w.processor !== 'function')throw new TypeError('Worker processor must be a function');
     if(w.concurrency !== undefined && (!Number.isSafeInteger(w.concurrency)||w.concurrency<1||w.concurrency>1024))throw new TypeError('Worker concurrency must be 1..1024');
+    if(w.limiter&&(!Number.isSafeInteger(w.limiter.max)||w.limiter.max<1||w.limiter.max>1_000_000||!Number.isSafeInteger(w.limiter.duration)||w.limiter.duration<1000||w.limiter.duration>86_400_000))throw new RangeError('Invalid Redis worker rate limit');
   }
   const connection = createBullMQRedisOptions(config.redis);
   const moduleName='bullmq';
@@ -224,6 +235,20 @@ export async function createQueueService(config:QueueServiceConfig, injected?:Bu
   const manager={
     operations,
     routes:()=>config.dashboard?createQueueDashboard({names:()=>[...queues.keys()],operations},config.dashboard).routes():[],
+    schedules(name:string) {
+      const q=getQueue(name);
+      // Bind the scheduler to this runtime generation: calls after close are rejected.
+      return createQueueTaskScheduler({
+        add:(jobName,data,opts)=>{ensureOpen();return q.add(jobName,data,opts);},
+        addBulk:jobs=>{ensureOpen();return q.addBulk(jobs.map(j=>({name:j.name,data:j.data,opts:j.options})));},
+        getJob:id=>{ensureOpen();return q.getJob(id);},
+        counts:(...states)=>{ensureOpen();return q.getJobCounts(...states);},
+        pause:()=>{ensureOpen();return q.pause();},resume:()=>{ensureOpen();return q.resume();},
+        upsertJobScheduler:(id,repeat,template)=>{ensureOpen();if(!q.upsertJobScheduler)throw new Error("BullMQ Job Scheduler unavailable");return q.upsertJobScheduler(id,repeat,template);},
+        removeJobScheduler:(id)=>{ensureOpen();if(!q.removeJobScheduler)throw new Error("BullMQ Job Scheduler unavailable");return q.removeJobScheduler(id);},
+        getJobSchedulers:(start,end,asc)=>{ensureOpen();if(!q.getJobSchedulers)throw new Error("BullMQ Job Scheduler unavailable");return q.getJobSchedulers(start,end,asc);}
+      });
+    },
     queue(name:string):ZeruxQueue {
       const q=getQueue(name);
       return {
@@ -296,7 +321,7 @@ export async function createQueueService(config:QueueServiceConfig, injected?:Bu
     }
     for(const [name,options] of Object.entries(config.workers??{})) {
       // The Worker uses a dedicated connection configuration for blocking operations.
-      const worker=new bullmq.Worker(name,options.processor,{connection:connection.worker,prefix,concurrency:options.concurrency??1,autorun:options.autorun??true,...(options.lockDuration?{lockDuration:options.lockDuration}:{})});
+      const worker=new bullmq.Worker(name,options.processor,{connection:connection.worker,prefix,concurrency:options.concurrency??1,autorun:options.autorun??true,...(options.lockDuration?{lockDuration:options.lockDuration}:{}),...(options.limiter?{limiter:options.limiter}:{})});
       worker.on('error',(error:unknown)=>{try{config.onWorkerError?.(name,error);}catch{/* logging must never terminate a worker */}});
       workers.set(name,worker);
     }
@@ -380,3 +405,9 @@ export async function enqueueEmailById(
 }
 
 export * from './campaigns.js';
+
+export * from './reporting.js';
+export * from './performance.js';
+export * from './trends.js';
+export * from './history.js';
+export * from './history-gaps.js';
