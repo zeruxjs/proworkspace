@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { inspectWorkspaceLock } from './workspace-lock.mjs';
 import { inspectWorkspaceContracts } from './workspace-contracts.mjs';
+import { inspectPackageReleaseSecurity } from './workspace-security-audit.mjs';
 import { createCleanWorkspaceSnapshot } from './workspace-snapshot.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +22,8 @@ if (!contracts.ok) {
   console.error(`[clean] Invalid package source exports: ${JSON.stringify(contracts.problems)}`);
   process.exit(1);
 }
+const security = inspectPackageReleaseSecurity(root);
+if (!security.ok) { console.error(`[clean] Offline security/API freeze violations: ${JSON.stringify(security.issues)}`); process.exit(1); }
 const report = inspectWorkspaceLock(root);
 if (!report.ok) {
   console.error('[clean] Cannot verify: package-lock.json is incomplete. Run npm run deps:check for details.');
@@ -44,7 +47,11 @@ try {
   const installArgs = ['ci', '--no-audit', '--no-fund', '--fetch-retries=0'];
   if (args.includes('--offline')) installArgs.push('--offline');
   run('npm ci', command, installArgs);
+  if (!args.includes('--offline')) run('online production advisory gate', command, ['run', 'security:online'], 240_000);
+  run('installed third-party license artifact metadata inspection', command, ['run', 'license:installed']);
   run('workspace artifact build', command, ['run', 'build:workspaces'], 45 * 60_000);
+  run('real public npm tarball consumer (runtime and types)', command, ['run', 'release:public:consumer']);
+  run('npm tarball exports, licenses and published-dependency graph', command, ['run', 'release:pack']);
   run('workspace tooling regression tests', command, ['run', 'test:workspace-tools']);
   run('framework lifecycle smoke tests', process.execPath, [
     '--test', 'packages/zeruxjs/test/fetch-route.test.mjs',
@@ -52,7 +59,7 @@ try {
     'packages/zeruxjs/test/variables.test.mjs'
   ]);
   success = true;
-  console.log('[clean] PASS: clean npm ci, all workspace builds, and framework smoke tests.');
+  console.log(args.includes('--offline') ? '[clean] PASS: offline install/build smoke only; online advisory gate NOT run.' : '[clean] PASS: clean npm ci, production advisory check, all workspace builds, and framework smoke tests.');
 } catch (error) {
   console.error(`[clean] FAIL: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

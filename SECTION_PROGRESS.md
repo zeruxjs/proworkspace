@@ -201,3 +201,98 @@ Implemented validated SMTP envelope acceptance statuses (`accepted`/`partial`/`r
 - Added `.github/workflows/codeql.yml` to scan TypeScript/JavaScript **and** GitHub Actions on push, PR, merge queue, weekly schedule and manual dispatch; quality+security suite, scoped permissions, no npm install required.
 - Source/test implementation is complete. Still *not* a cross-DB/Redis transaction or exactly-once SMTP guarantee. Section 66 clean-install and live Redis/SMTP gates remain unresolved.
 - Full details: `SECTION_69_OUTBOX_RECOVERY_CODEQL.md`.
+
+## Section 70 — Function-based marketing campaigns and operations (2026-10-13)
+
+- Expanded `@zeruxjs/email` marketing service with `schedule`, CAS-lease-protected queue publishing, segment-based eligibility, optional pre-queue consent/suppression checks, and a hard requirement for proof of missing queue jobs before administrative redrive. Campaign render stays on-demand with **one persisted copy** of subject/HTML/plain template and globally registered `{{variables}}`. Durable processor/EmailManager consent and suppression gates remain mandatory.
+- Added bounded and non-overclaiming `report` per delivery-state, redacted `exportPage` with separately authorized PII export, cancelled-or-finalized `archive` that refuses pending/uncertain sends, and legal-hold-authorized `redactArchived` that only removes campaign-local recipient/template data. Separate delivery, preference, suppression, tracking and audit retention obligations remain.
+- Added append-only PII-free `createDatabaseMarketingAuditLog`; updated the opt-in, CSRF-protected campaign dashboard with scheduling, reporting, redacted exports, safe archive and next-page navigation. Created focused real-SQLite multi-worker, 415-recipient batch, suppression, export/retention, completion and HTTP authorization tests.
+- Local TypeScript Email build and Email and Queue regression suites pass (live protocol tests intentionally skipped). External PostgreSQL/MySQL/MongoDB, Redis/BullMQ, SMTP and CodeQL workflows remain unverified; Section 66 clean install remains blocked. See `SECTION_70_COMPLETE_MARKETING_CAMPAIGNS.md`. Continue to **Section 71** next; roadmap stays at **85 package sections**, with AIO infrastructure excluded.
+
+## Section 71 — Analytics collection, identity, retention and backfill (2026-10-14)
+
+Expanded `@zeruxjs/analytics` with optional strict typed event allowlists, explicit browser consent gating and opaque per-visitor/session IDs, a consent-aware browser client with CSPRNG ID helper, origin-bound tenant resolution, heuristic opt-in bot/prefetch filtering, request-ID validation before reservation, event-ID uniqueness indexing, exact-vs-page-sampled labeling and a bounded approval-gated, numeric-first retention API. Existing native COUNT/materialized numeric aggregates and durable backfill jobs are preserved. Added real-SQLite validation of the ingestion → historical reconciliation → retention lifecycle and opt-in live PostgreSQL/MySQL/Mongo parity test runners. Local Analytics suite: **60 passed, 3 skipped, 0 failed**; real external DB parity, clean npm CI, provider delivery and hosted CodeQL are **not verified**. Details: `SECTION_71_ANALYTICS_COLLECTION_IDENTITY_RETENTION.md`. **Next Section 72 — Tags publishable runtime and governance.**
+
+
+## Section 72 — Publishable tags runtime and governance (2026-10-14)
+
+Added distinct versioned tag *draft* and *published* release views in the existing CAS document, history-aware publish/rollback, explicit editor/publisher role separation, side-effect-free draft/live preview, publish-time destination validation and a functional visual editor. Server `astag` and browser bootstrap now execute published triggers only, consent defaults align, and public `ttag` cannot forge the server-issued site/debug policy or trusted request ID. Added portable release-size/history caps, SHA-256-script CSP, site-bound browser collection and fail-soft warnings. TypeScript and local Tag tests pass (**22/22**, no failures), including multi-manager CAS tests and a passing two-connection real SQLite release test (1/1). No clean npm installation, full live DB parity or live external sink certification is claimed. See `SECTION_72_TAGS_PUBLISHABLE_RUNTIME_GOVERNANCE.md`. **Next: Section 73 — Reports and campaign analytics dashboards.**
+
+
+## Section 73 — Reports and campaign analytics dashboards (2026-10-14)
+
+Extended `@zeruxjs/reports` with tenant-specific versioned stores (`resolveScope`), independent read/edit/export/sensitive-property/campaign roles, bounded per-request UTC filters, catalog pagination, CSV/JSON exports with formula neutralization and performance caps, static CSP hashes, and the optional marketing campaign panel. Saved charts retain native exact COUNT, indexed-only numeric facts and bounded-sample provenance; incomplete provider/email activity never masquerades as unique confirmed delivery. Fixed sampled average/global-total behavior and an outdated Section 71 SQLite index expectation. Local Reports tests **35 passed**; Reports SQLite two-connection CAS/tenant test **1 passed**; analytics SQLite native counts **1 passed**. Clean registry install and live PostgreSQL/MySQL/Mongo/SMTP/Redis/SSO/cluster gates remain open. See `SECTION_73_REPORTS_CAMPAIGN_ANALYTICS_DASHBOARDS.md`. **Next Section 74 — DB, auth and tenant security.**
+
+## Section 74 — Database, auth, migration and tenant security (2026-10-14)
+
+Added `createTenantDatabaseFacade`, `createDatabaseMigrationRunner`, tenant/site permission checks, SQL compiler runtime injection and type/identifier validation, fail-closed Mongo schema behavior, PostgreSQL affected-count fixes and SQLite online backup integrity checks. Real SQLite two-connection isolation, transactional schema rollback/checksum-drift detection, and WAL snapshot/recovery rehearsal pass. Added opt-in PostgreSQL/MySQL/MongoDB connector parity harness; missing service credentials mean these checks are skipped rather than claimed. Auth storage remains host-configured and multi-node token/session revocation external. Source implementation delivered; **cross-DB/live provider and Section 66 clean-install release gates remain open**. See `SECTION_74_DATABASE_AUTH_MIGRATIONS_TENANT_SECURITY.md`. Next **Section 75**.
+
+## Section 75 — Redis cache and distributed queue scheduler (2026-10-14)
+
+Hardened ioredis Cluster namespace scans and single-key cross-slot-safe deletion; added explicit hash-tag-isolated BullMQ Cluster producer/worker connections and resource ownership; bounded job/schedule/worker settings and nested scheduled payloads; introduced per-queue authorized administrative schedule actions. Added mock-backed regression and opt-in standalone/Cluster live tests. Source and local SQLite/mock verification delivered; real Redis/Cluster, outage/crash/DST, Redis ACLs and Section 66 registry-backed clean-install gates remain open. Details: `SECTION_75_REDIS_CACHE_QUEUE_SCHEDULER.md`. **Next Section 76.**
+
+## Section 76 — ZeruxJS core, runtime and API integration (2026-10-14)
+
+Added fail-closed global and route middleware execution, cross-service dynamic route collision rejection and post-registration reserved endpoint protection, per-generation variable registries with shutdown disposal and subject/HTML/text rendering, secure removal of raw `globalThis.zeruxConfig`, improved Tags/Reports/Queue framework config types and a source-injectable service bootstrap test seam. Local full ZeruxJS TypeScript compilation and test suite pass; a real Node listener and all-eight-service lifecycle smoke use injected providers rather than live external services. Section 66 clean install, live provider integration and multi-process hot-reload/state certification remain open. See `SECTION_76_ZERUX_CORE_RUNTIME_API_INTEGRATION.md`. **Next Section 77.**
+
+
+## Section 77 — ZSRV gateway, protocols and rolling multi-instance serving (2026-10-14)
+
+Added a strictly reconstructed socket-derived forwarding chain (rejecting untrusted client/proxy IP aliases), HTTP/1.1 WebSocket handshake validation, safe mid-stream oversized upload abort, gRPC h2 authority/trailer preservation with backend transport-health feedback, and an opt-in configurable pre-cutover health verification gate for rolling processes exposed via `--precutover-checks`. Existing lease-fenced rollback, admission, compression, cache, SSE/Connect/JSON-RPC/MCP gateway and backend/fleet APIs are preserved. Verified 171 independently runnable ZSRV tests, targeted strict TypeScript no-emit check and 34 workspace tooling tests. The entire ZSRV suite cannot certify offline CLI/dev boot while external `chalk`, `ws` and built z-dev/zwatch are absent; real multi-process fault/load, HTTP/3 terminator and Section 66 clean-install gates remain open. See `SECTION_77_ZSRV_GATEWAY_PROTOCOLS_ROLLING_SERVING.md`. **Next Section 78.**
+
+
+## Section 78 — Frontend interoperability and React/Vue/Zyro accessibility bridges (2026-10-14)
+
+Introduced pinned/memoized React SSR snapshots and explicit hydration rules, injected Vue effect-scope bridges with SSR one-shot mode and manual teardown, and Zyro observer scopes for route/component ownership. Added semantic `zeruxjs/accessibility` ARIA tabs with keyboard focus, disabled/RTL/vertical handling and reduced-motion preference read. Added a reusable localhost-only browser fixture for Sections 81–82, browser-runner opt-in and cross-platform frontend gate. Locally **38 passed, 1 browser skipped**; **34 tooling tests** and **42 package contracts** pass. Real React/Vue runtime and headless Chromium runs could not be certified; the 14 missing workspace dependency resolutions persist. See `SECTION_78_FRONTEND_BRIDGES_ACCESSIBILITY.md`. **Next Section 79.**
+
+## Section 79 — CLI/dev tooling, test runner and developer experience (2026-10-14)
+
+Delivered safe, non-overwriting `zcli create` scaffolding for JavaScript and
+TypeScript with opt-in dry-run; retained composable command/plugin registry.
+Hardened `zeyro` config-relative test discovery, argument validation,
+empty-test failure and `afterAll` teardown under bail. Validated `zwatch`
+option bounds and error propagation. Added read-only workspace doctor (JSON,
+strict exit gate) and dependency-order `test:developer` scripts. Current local
+ZCLI, Zeyro, Zwatch, Z-Dev, tooling and isolated preflight tests pass, with
+clean `npm ci`, live development HMR, Windows/macOS, browser and production
+launch unverified. **The Section 79 clean-machine exit gate remains blocked**
+by the Section 66 unresolved third-party package entries. See
+`SECTION_79_CLI_DEV_TOOLING_TEST_RUNNER.md`. **Next Section 80.**
+
+
+## Section 80 — Ecosystem packages and content workflows (2026-10-14)
+
+Completed targeted hardening of streamed file/media size claims, storage copy policies, request-authorized media metadata, AI fallback, document evidence/snapshot safety and sitemap runtime validation. Added a 13-package build/test gate (`npm run test:ecosystem:offline` / `npm run test:ecosystem`) and a real local-files content workflow. **13 builds and 97 offline ecosystem tests passed, plus 36 tooling tests; 42 package source contracts verified.** Live S3/CDN/AI services, provider multipart race tests, clean registry installation and OS/browser release gates remain **unverified/blocked**. See [`SECTION_80_ECOSYSTEM_CONTENT_FILES_QUALIFICATION.md`](SECTION_80_ECOSYSTEM_CONTENT_FILES_QUALIFICATION.md). **Next: Section 81 — ZyroJS standalone runtime.**
+
+## Section 81 — ZyroJS standalone runtime and lifecycle (2026-10-14)
+
+Hardened independent `zyrojs` signals, conditional effect re-tracking, nested batching, explicit scope/computed cleanup and bounded update loops. Replaced its placeholder DOM patcher with keyed reconciliation, form bindings, static escaped SSR and deterministic root unmount; hardened stale network requests and cache cancellation. Published ESM/declaration export mappings for root, DOM and network, and a repeatable offline packed-consumer check. **22 ZyroJS tests and 13 bridge tests pass**, **36 tooling tests pass**, and isolated preflight passes **1,590 source files, 42 contracts and 33 tests**. Real browsers, React/Vue runtimes, clean registry install and full production memory/OS certification remain open; 14 external lock entries are still unresolved. See [`SECTION_81_ZYROJS_STANDALONE_RUNTIME.md`](SECTION_81_ZYROJS_STANDALONE_RUNTIME.md). **Next Section 82 — Zuix CSS.**
+
+### Section 82 — Zuix CSS compiler/themes/adapter source qualification (2026-10-14)
+
+The standalone `zuix` package gained bounded and symlink-safe static scans/output, restricted arbitrary CSS grammar, ordered/deduplicated generation, incremental watcher caching and error recovery, strict CLI parsing, and correct Vite module replacement/deletion behavior. **11 focused Node tests and an offline packed npm consumer passed; 36 workspace-tooling tests and 33 isolated preflight tests passed (42 contracts, 1,594 files).** Chromium could not render a page, real framework apps remain unverified and the original 14 external dependency locks remain unresolved. See `SECTION_82_ZUIX_PRODUCTION_COMPILER_THEMES_ADAPTERS.md`. **Next: Section 83 — package-only real-service integration.**
+
+
+## Section 83 — Package-only real-service integration laboratory (2026-10-15)
+
+Added isolated loopback PostgreSQL/MySQL/Mongo/Redis/MinIO/GreenMail Compose definitions, per-suite opt-in and health probes, strict TAP/evidence reporting, scoped build and process timeouts, real S3 acceptance, and a real SQLite host-authenticated tenant Analytics→Tags→Reports→Email-suppression pipeline. Added Node 22/24 source-only CI and manual Node 22 disposable-provider CI. **Five offline suites passed** (33 source, 11 Auth/Security, 7 SQLite with 3 skips for other engines, 1 authenticated pipeline and 1 content workflow), plus **41 workspace tooling tests**. Real service/Redis Cluster/SMTP/IMAP/POP3/browser certification remains *unverified*, and clean install is still blocked by the 14 external lock entries. This section is **source and local-lab implemented; full live exit gate OPEN**. See `SECTION_83_PACKAGE_REAL_SERVICE_INTEGRATION_LAB.md`. **Next: Section 84 — security, reliability, performance and API freeze.**
+
+## Section 84 — Package-only security, performance and API freeze (2026-10-15)
+
+**Status: SOURCE / LOCAL GATE IMPLEMENTED; PRODUCTION SECURITY EXIT GATE OPEN.** Committed a deterministic metadata-level API freeze for 42 workspaces, offline package security/credential/install-hook/dependency checks, lock license inventory, and an online `npm audit --omit=dev --audit-level=high` gate for clean-install CI and release finalization. Fixed Z-Dev symlink/path-containment in module/public assets and bounded Security nonce/cookie/asset input handling, with randomized and real-filesystem regressions. Local affected-package TypeScript compilation and 12 Security/Z-Dev tests pass; 6 new release-security regressions, 48 workspace-tooling tests, 40 isolated source tests, and 165k bounded helper stress operations pass. The Section 66 clean `npm ci` remains blocked by 14 external lock entries; provider/browser/OS/distributed fault tests, online audit and artifact license review were NOT run. See `SECTION_84_PACKAGE_SECURITY_PERFORMANCE_API_FREEZE.md` and `RELEASE_BLOCKERS_84.md`. **Next Section 85 must record an explicit GO/NO-GO; do not claim a stable release from source-only success.**
+
+## Section 85 — Final package release review (2026-10-15)
+
+Added explicit allowlisted npm tarball contents for all eight public packages, a read-only/source-vs-built package artifact inspector, detection of direct/transitive private and unpinned workspace dependencies, post-build fail-closed artifact checks in CI and clean-release flows, a manual Node 22/24 no-publish review workflow, and package/migration/release documentation. Four standalone packages (`zcli`, `zeyro`, `zyrojs`, `zuix`) compiled with temporary local Node typings and their `npm pack --dry-run` inventories contained all declared runtime/CLI/type entrypoints; their selected offline suites pass. Tooling/source regressions pass without installed third-party dependencies.
+
+**Final Section 85 stable-release decision: NO-GO.** Four public packages remain unbuilt in the deliverable's source-only tree, 14 distinct external package resolutions (15 dependency edges) are missing, and public package graphs retain private or wildcard dependencies. Online CVE/license audits, real-service fault acceptance, native consumer/OS/browser matrices, provenance and final maintainer approval are unverified. No package was published or upgraded to stable. See `SECTION_85_PACKAGE_RELEASE_QUALIFICATION.md`, `RELEASE_DECISION_85.md`, and `RELEASE_BLOCKERS_84.md`. The 85-section *plan* is exhausted; the release gates are not satisfied.
+
+
+### Post-Section 85 package-only source release hardening (2026-10-15)
+
+Public candidate dependency graph repaired (13 public, 29 private), 41 local wildcard ranges pinned, four foundational tarball consumers locally verified. See `POST85_PACKAGE_RELEASE_HARDENING.md`. No additional numbered section was created; production release remains **NO-GO** until external gates pass. The AIO application is next and has not been modified.
+
+
+## Final GO-readiness execution — 2026-10-15
+
+See [`RELEASE_GO_READINESS_FINAL.md`](RELEASE_GO_READINESS_FINAL.md). Added all-public packed consumer acceptance, installed third-party license-artifact inspection, opt-in npm lockfile repair CI and integration-lab report symlink/absolute-path containment fixes. **68 workspace-tooling tests, 60 isolated source-preflight tests** passed. Registry DNS remains unavailable, 14 external packages are unresolved, and real-provider/browser evidence plus maintainer signoff are still outstanding. **Stable release remains NO-GO.**

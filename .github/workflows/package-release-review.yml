@@ -1,0 +1,62 @@
+name: Package release review (no publish)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-review:
+    name: Package review / ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    defaults:
+      run:
+        working-directory: apps/proworkspace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: apps/proworkspace/package-lock.json
+      - name: Check source contracts and offline security
+        run: npm run verify:source
+      - name: Record no-publish release decision
+        if: always()
+        run: |
+          mkdir -p integration-lab/reports
+          node scripts/package-release.mjs --json > integration-lab/reports/release-decision-${{ matrix.os }}-${{ matrix.node }}.json
+      - name: Verify version-pinned publication dependency graph
+        run: npm run release:graph
+      - name: Validate lock metadata before npm installation
+        run: npm run deps:check
+      - name: Install exactly locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Review advisories
+        run: npm run security:online
+      - name: Validate installed third-party license artifacts
+        run: npm run license:installed
+      - name: Build distributable artifacts
+        run: npm run build:workspaces
+      - name: Offline packed foundation consumer (supported Node ESM/CJS)
+        run: npm run release:foundation:consumer
+      - name: Verify every public npm tarball in an isolated runtime and TypeScript consumer
+        run: npm run release:public:consumer
+      - name: Verify packed exports, declarations and npm dependency policy
+        run: npm run release:pack
+      - name: Re-check source API and supply-chain policy
+        run: npm run api:freeze:check && npm run security:source
+      - name: Upload review evidence (not publish artifacts)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-review-${{ matrix.os }}-node-${{ matrix.node }}
+          path: apps/proworkspace/integration-lab/reports/release-decision-${{ matrix.os }}-${{ matrix.node }}.json
+          if-no-files-found: warn

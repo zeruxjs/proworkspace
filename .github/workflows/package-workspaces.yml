@@ -6,6 +6,7 @@ on:
       - 'apps/proworkspace/scripts/**'
       - 'apps/proworkspace/package.json'
       - 'apps/proworkspace/package-lock.json'
+      - 'apps/proworkspace/api-freeze.json'
       - '.github/workflows/package-workspaces.yml'
       - 'SECURITY.md'
   pull_request:
@@ -14,6 +15,7 @@ on:
       - 'apps/proworkspace/scripts/**'
       - 'apps/proworkspace/package.json'
       - 'apps/proworkspace/package-lock.json'
+      - 'apps/proworkspace/api-freeze.json'
       - '.github/workflows/package-workspaces.yml'
       - 'SECURITY.md'
   workflow_dispatch:
@@ -36,14 +38,24 @@ jobs:
         run: test -s SECURITY.md
       - name: Offline source preflight (no registry needed)
         run: npm run verify:source
+      - name: Verify frozen public package contracts
+        run: npm run api:freeze:check
+      - name: Offline package security/source audit
+        run: npm run security:source
       - name: Verify public package source contracts
         run: npm run contracts:check
       - name: Verify workspace graph and lockfile
         run: npm run deps:check
       - name: Install exactly locked dependencies
         run: npm ci --no-audit --no-fund
+      - name: Audit production dependencies against online advisories
+        run: npm run security:online
       - name: Build and verify all workspace exports
         run: npm run build:workspaces
+      - name: Verify real npm tarball contents and publishable dependencies
+        run: npm run release:pack
+      - name: Run Section 84 security and bounded performance regression
+        run: npm run test:section84
       - name: Verify workspace scripts
         run: npm run test:workspace-tools
       - name: Boot framework HTTP/variable smoke tests

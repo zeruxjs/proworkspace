@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process';
 import { createCleanWorkspaceSnapshot } from './workspace-snapshot.mjs';
 import { inspectWorkspaceLock } from './workspace-lock.mjs';
 import { inspectWorkspaceContracts } from './workspace-contracts.mjs';
+import { inspectPackageReleaseSecurity } from './workspace-security-audit.mjs';
 import { discoverWorkspaces } from './workspace-graph.mjs';
 
 const RELEASE_STEPS = Object.freeze([
@@ -24,7 +25,9 @@ const RELEASE_STEPS = Object.freeze([
   { name: 'Verify resolved lockfile', bin: 'npm', args: ['run', 'deps:check'], timeout: 120_000 },
   { name: 'Verify package contracts', bin: 'npm', args: ['run', 'contracts:check'], timeout: 120_000 },
   { name: 'Clean dependency install', bin: 'npm', args: ['ci', '--no-audit', '--no-fund', '--fetch-retries=1'], timeout: 1_200_000 },
+  { name: 'Online production advisory gate', bin: 'npm', args: ['run', 'security:online'], timeout: 240_000 },
   { name: 'Build all workspaces', bin: 'npm', args: ['run', 'build:workspaces'], timeout: 2_700_000 },
+  { name: 'Verify packed npm artifact contents', bin: 'npm', args: ['run', 'release:pack'], timeout: 240_000 },
   { name: 'Run workspace tooling tests', bin: 'npm', args: ['run', 'test:workspace-tools'], timeout: 240_000 },
   { name: 'Run framework lifecycle tests', bin: 'node', args: ['--test', 'packages/zeruxjs/test/fetch-route.test.mjs', 'packages/zeruxjs/test/services-lifecycle.test.mjs', 'packages/zeruxjs/test/variables.test.mjs'], timeout: 240_000 },
 ]);
@@ -68,6 +71,8 @@ export function finalizeWorkspaceRelease(root, options = {}) {
   const beforeManifest = hashFile(path.join(source, 'package.json'));
   const sourceContracts = inspectWorkspaceContracts(source);
   if (!sourceContracts.ok) throw new Error(`Source package exports are invalid: ${JSON.stringify(sourceContracts.problems)}`);
+  const security = inspectPackageReleaseSecurity(source);
+  if (!security.ok) throw new Error(`Offline security/API freeze violations: ${JSON.stringify(security.issues)}`);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zerux-section66-release-'));
   const stage = path.join(tmp, 'checkout');
   let passed = false;
@@ -85,7 +90,7 @@ export function finalizeWorkspaceRelease(root, options = {}) {
     verifyManifestsUnchanged(source, stage);
     const deps = inspectWorkspaceLock(stage);
     const contracts = inspectWorkspaceContracts(stage);
-    if (!deps.ok || !contracts.ok) throw new Error('Post-build lockfile or package export checks failed');
+    if (!deps.ok || !contracts.ok || !inspectPackageReleaseSecurity(stage).ok) throw new Error('Post-build lockfile, security/API freeze or package export checks failed');
     if (hashFile(currentLock) !== beforeLock || hashFile(path.join(source, 'package.json')) !== beforeManifest) {
       throw new Error('Source changed during verification; refusing to overwrite the package-lock.json');
     }

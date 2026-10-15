@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { inspectWorkspaceLock } from './workspace-lock.mjs';
 import { inspectWorkspaceContracts } from './workspace-contracts.mjs';
+import { inspectPackageReleaseSecurity } from './workspace-security-audit.mjs';
 import { createCleanWorkspaceSnapshot } from './workspace-snapshot.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,10 +33,12 @@ try {
     if (!json) process.stdout.write(result.stdout);
     return result.stdout;
   };
-  const testOutput = run('workspace tool regressions', ['--test', 'scripts/workspace-build.test.mjs', 'scripts/workspace-lock.test.mjs', 'scripts/workspace-snapshot.test.mjs', 'scripts/workspace-contracts.test.mjs', 'scripts/workspace-release.test.mjs']);
+  const testOutput = run('workspace tool regressions', ['--test', 'scripts/workspace-build.test.mjs', 'scripts/workspace-lock.test.mjs', 'scripts/workspace-snapshot.test.mjs', 'scripts/workspace-contracts.test.mjs', 'scripts/workspace-release.test.mjs', 'scripts/doctor.test.mjs', 'scripts/workspace-api-freeze.test.mjs', 'scripts/workspace-security-audit.test.mjs', 'scripts/workspace-package-release.test.mjs', 'scripts/workspace-public-consumer.test.mjs', 'scripts/integration-lab-core.test.mjs', 'scripts/workspace-installed-licenses.test.mjs']);
   const build = JSON.parse(run('workspace build order', ['scripts/build-workspaces.mjs', '--dry-run', '--json'], { json: true }));
   const report = inspectWorkspaceLock(dest);
   const contracts = inspectWorkspaceContracts(dest);
+  const security = inspectPackageReleaseSecurity(dest);
+  if (!security.ok) throw new Error(`Offline package security preflight: ${JSON.stringify(security.issues)}`);
   if (!contracts.ok) throw new Error(`Package source contract violations: ${JSON.stringify(contracts.problems)}`);
   if (report.staleWorkspaceMetadata || report.malformedEntries.length || report.insecureResolutions.length) {
     throw new Error('Source lock metadata failed structural checks');
@@ -47,6 +50,7 @@ try {
   const passedCount = Number(testOutput.match(/# pass (\d+)/)?.[1] ?? 0);
   console.log(`[source] PASS: ${snapshot.copiedFiles} isolated source files, ${build.planned.length} package contracts/build plans, ${passedCount} tool tests`);
   if (!report.ok) console.log(`[source] UNRESOLVED: ${report.unresolvedExternal.length} external packages; npm ci/full build NOT verified`);
+  console.log('[source] API freeze + offline supply-chain structural review: PASS (online advisories/scan NOT run)');
   console.log('[source] This command is a source-only preflight; run verify:clean before production release.');
 } catch (error) {
   console.error(`[source] FAIL: ${error instanceof Error ? error.message : String(error)}`);

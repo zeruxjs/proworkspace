@@ -1,0 +1,45 @@
+name: Package lock recovery (review only, no publish)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/proworkspace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve missing npm registry entries into a review candidate
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
+          cp package-lock.json package-lock-candidate.json
+      - name: Validate lock and source contracts
+        run: npm run deps:check && npm run verify:source
+      - name: Prove candidate lock with clean installation
+        run: npm ci --no-audit --no-fund
+      - name: Check production advisories and installed license artifacts
+        run: npm run security:online && npm run license:installed
+      - name: Build all package workspaces
+        run: npm run build:workspaces
+      - name: Test all real npm tarballs in isolated consumer
+        run: npm run release:public:consumer
+      - name: Test independent foundation tarballs
+        run: npm run release:foundation:consumer
+      - name: Evaluate pack and stable compatibility policy
+        run: npm run release:pack
+      - name: Upload candidate lock for explicit maintainer review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proposed-package-lock-node22-no-publish
+          path: apps/proworkspace/package-lock-candidate.json
+          if-no-files-found: warn

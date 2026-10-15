@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { finalizeWorkspaceRelease, RELEASE_STEPS } from './workspace-release.mjs';
+import { writePublicApiFreeze } from './workspace-api-freeze.mjs';
 
 function fixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zerux-release-test-'));
@@ -26,6 +27,7 @@ function fixture(t) {
   };
   const lock = { name: manifest.name, version: manifest.version, lockfileVersion: 3, requires: true, packages };
   fs.writeFileSync(path.join(root, 'package-lock.json'), JSON.stringify(lock, null, 2) + '\n');
+  writePublicApiFreeze(root);
   return root;
 }
 
@@ -117,4 +119,10 @@ test('release gate fails fast on registry connectivity without mutating source l
   }), /registry unavailable/);
   assert.deepEqual(observed, ['Check npm registry connectivity']);
   assert.equal(fs.readFileSync(lock, 'utf8'), original);
+});
+
+test('release fails closed on public API drift before invoking registry or install', t => {
+ const root=fixture(t); const file=path.join(root,'packages/pkg/package.json');
+ const pkg=JSON.parse(fs.readFileSync(file,'utf8')); pkg.exports={'.':'./src/next.js'}; fs.writeFileSync(file,JSON.stringify(pkg)); fs.writeFileSync(path.join(root,'packages/pkg/src/next.js'),'export default 2;');
+ assert.throws(()=>finalizeWorkspaceRelease(root,{run(){throw new Error('should not run');}}),/API freeze/);
 });
