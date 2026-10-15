@@ -86,7 +86,7 @@ const addCommands = () => {
                 const fix = command.includes(":fix");
                 const watch = command.includes(":watch");
 
-                let runner: () => Promise<void>;
+                let runner: () => Promise<{ ok: boolean }>;
 
                 if (command.includes(":js")) {
                     runner = () => lint.lintJs({ fix });
@@ -99,9 +99,13 @@ const addCommands = () => {
                 }
 
                 if (watch) {
-                    await lint.watch(runner);
+                    await lint.watch(async () => {
+                        const result = await runner();
+                        if (!result.ok) throw new Error(`Lint check failed: ${command}`);
+                    });
                 } else {
-                    await runner();
+                    const result = await runner();
+                    if (!result.ok) throw new Error(`Lint check failed: ${command}`);
                 }
             },
             {

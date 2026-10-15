@@ -13,8 +13,18 @@ export function addressString(input:EmailAddress):string{return typeof input==='
 export function validateSmtp(smtp:SmtpSettings){
   if(typeof smtp.host!=='string'||smtp.host.length>253||!/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/.test(smtp.host))throw new TypeError('Invalid SMTP hostname');
   if(!Number.isSafeInteger(smtp.port)||smtp.port<1||smtp.port>65535)throw new RangeError('Invalid SMTP port');
-  if(smtp.ignoreTLS&&smtp.requireTLS)throw new TypeError('Conflicting TLS options');
+  if(smtp.ignoreTLS===true)throw new TypeError('Ignoring TLS is unsafe for outbound SMTP');
+  if(smtp.port===465&&smtp.secure===false)throw new TypeError('SMTP port 465 requires implicit TLS');
+  if(smtp.secure!==true&&smtp.port!==465&&smtp.requireTLS===false)throw new TypeError('Disabling required STARTTLS is unsafe');
+  if(smtp.tls?.minVersion!==undefined&&!['TLSv1.2','TLSv1.3'].includes(smtp.tls.minVersion))throw new TypeError('Invalid SMTP minimum TLS version');
   if(smtp.auth){const a=smtp.auth;if(!a.user||badLine.test(a.user))throw new TypeError('Invalid SMTP user');if(a.type==='password'){if(!a.pass)throw new TypeError('Missing SMTP password');}else if(a.type==='oauth2'){if(!a.accessToken&&!a.refreshToken&&!a.privateKey)throw new TypeError('Missing OAuth2 token source');}else throw new TypeError('Unsupported SMTP auth');}
+  for(const timeout of [smtp.connectionTimeout,smtp.greetingTimeout,smtp.socketTimeout]){
+    if(timeout!==undefined&&(!Number.isSafeInteger(timeout)||timeout<100||timeout>3_600_000))throw new RangeError('Invalid SMTP timeout');
+  }
+  if(smtp.dkim){
+    if(!/^[a-z0-9][a-z0-9.-]{0,252}$/i.test(smtp.dkim.domainName)||!/^[a-z0-9_-]{1,63}$/i.test(smtp.dkim.keySelector)||
+      typeof smtp.dkim.privateKey!=='string'||smtp.dkim.privateKey.length<40)throw new TypeError('Invalid DKIM signing configuration');
+  }
   if(smtp.maxConnections!==undefined&&(!Number.isSafeInteger(smtp.maxConnections)||smtp.maxConnections<1||smtp.maxConnections>100))throw new RangeError('Invalid SMTP pool size');
   if(smtp.tls?.rejectUnauthorized===false)throw new TypeError('Disabling SMTP certificate verification is unsafe');
 }

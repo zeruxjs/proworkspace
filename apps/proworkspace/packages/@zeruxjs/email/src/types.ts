@@ -42,8 +42,13 @@ export interface TransportLike {
   verify?():Promise<boolean>;
   close?():void|Promise<void>;
 }
-export interface EmailAccount {name:string; smtp?:SmtpSettings;transport?:TransportLike;defaults?:Partial<EmailMessage>;maxRecipients?:number;enabled?:boolean}
-export interface EmailResult {account:string;messageId?:string;accepted:string[];rejected:string[];response?:string;skipped?:boolean;reason?:string;trackingId?:string}
+export interface EmailAccount {name:string; smtp?:SmtpSettings;transport?:TransportLike;
+  /** Optional incoming side of this logical account, started through ZeruxJS email.receive. */
+  receive?:Omit<import('./inbound.js').IncomingAccount,'name'>;
+  defaults?:Partial<EmailMessage>;maxRecipients?:number;enabled?:boolean}
+export interface EmailResult {account:string;messageId?:string;accepted:string[];rejected:string[];response?:string;skipped?:boolean;reason?:string;trackingId?:string;
+  /** SMTP envelope result only; not evidence of delivery or inbox placement. */
+  submissionStatus?:'accepted'|'partial'|'rejected'|'unknown';acceptanceComplete?:boolean}
 export interface EmailManagerOptions {
   accounts:EmailAccount[];defaultAccount?:string;maxRecipients?:number;
   /** Globally suppress blocked recipients. Local memory; persist separately if needed. */
@@ -64,6 +69,14 @@ export interface EmailManagerOptions {
     isSubscribed(address:EmailAddress):Promise<boolean>;
     makeUnsubscribeUrl(address:EmailAddress):string;
   };
+  /** Shared, provider-neutral account reputation guard. Marketing blocks on read errors. */
+  reputation?: {
+    checkBeforeSend:(account:string,purpose:'marketing'|'transactional')=>Promise<{allowed:boolean}>;
+    recordAccepted:(account:string,email:string,messageId:string)=>Promise<boolean|unknown>;
+  };
+  /** PII-free diagnostic callback. A resolved SMTP call with unknown recipients is not a confirmed acceptance. */
+  onSmtpWarning?:(warning:{account:string;status:'accepted'|'partial'|'rejected'|'unknown';reason:string})=>void;
+  onReputationError?:(error:unknown)=>void;
   onTrackingError?:(error:unknown)=>void;
 }
 export interface RecipientRule {action:'allow'|'block';pattern:string;reason?:string;account?:string}

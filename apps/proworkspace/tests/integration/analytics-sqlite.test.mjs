@@ -12,7 +12,7 @@ test('real SQLite counts >500 persisted events and UTC day totals without raw-ro
  try{
   assert.equal(await analytics.initialize(),true);
   assert.equal(analytics.status().indexesReady,true);
-  const db=driver.getNativeConnection();assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND name LIKE 'analytics_events_%'").all()[0].n,3);
+  const db=driver.getNativeConnection();assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='index' AND name LIKE 'analytics_events_%'").all()[0].n,4); // Unique event-ID index added in Section 71
   const when=Date.now();
   for(let i=0;i<1101;i++)assert.ok(await analytics.track({name:i%2?'visit':'purchase',source:'web',site:i%2?'siteA':'siteB',occurredAt:when}));
   const counts=await analytics.aggregate({groupBy:'event'});

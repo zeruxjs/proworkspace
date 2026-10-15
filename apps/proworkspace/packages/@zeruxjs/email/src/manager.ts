@@ -1,4 +1,5 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
+import {classifySmtpAcceptance} from './smtp-outcomes.js';
 import type {EmailAccount, EmailAddress, EmailManagerOptions, EmailMessage, EmailResult, SmtpAuth, TransportLike} from './types.js';
 import {validateEmailAddress,validateMessage,validateSmtp,recipientList,addressString} from './validation.js';
 import {createRecipientFilter} from './filters.js';
@@ -11,7 +12,7 @@ function toTransportConfig(account:EmailAccount):Record<string,unknown>{
   const auth:SmtpAuth|undefined=smtp.auth;
   return {
     host:smtp.host,port:smtp.port,secure:smtp.secure??smtp.port===465,
-    requireTLS:smtp.requireTLS??false,ignoreTLS:smtp.ignoreTLS??false,
+    requireTLS:smtp.requireTLS??(smtp.secure!==true&&smtp.port!==465),ignoreTLS:smtp.ignoreTLS??false,
     pool:smtp.pool??false,maxConnections:smtp.maxConnections??5,maxMessages:smtp.maxMessages??100,
     connectionTimeout:smtp.connectionTimeout??10000,greetingTimeout:smtp.greetingTimeout??10000,socketTimeout:smtp.socketTimeout??30000,
     tls:{minVersion:'TLSv1.2',rejectUnauthorized:true,...smtp.tls},
@@ -30,6 +31,24 @@ function unsubscribeHeaders(value:EmailMessage['listUnsubscribe']):Record<string
   if(value.email){validateEmailAddress(value.email);targets.push(`<mailto:${value.email}>`);}
   if(!targets.length)throw new TypeError('Unsubscribe target required');
   return {'List-Unsubscribe':targets.join(', '),...(value.url?{'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'}:{})};
+}
+function fingerprintSend(message:EmailMessage,opts:EmailSendOptions):string{
+  const seen=new WeakSet<object>();
+  let encoded:string;
+  try{encoded=JSON.stringify({message,opts},(_key,value)=>{
+    if(typeof value==='function'||typeof value==='symbol'||typeof value==='bigint')throw new TypeError('Non-serializable idempotent email');
+    if(typeof value==='object'&&value!==null){
+      if(seen.has(value))throw new TypeError('Repeated/cyclic object in idempotent email');
+      seen.add(value);
+      if(typeof value.pipe==='function'||typeof value.getReader==='function')throw new TypeError('Stream attachments require durable external idempotency');
+      if(!Array.isArray(value)&&!(value instanceof Uint8Array)&&!Buffer.isBuffer(value)){
+        return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));
+      }
+    }
+    return value;
+  })!;}catch(error){throw Object.assign(new TypeError('Idempotent email must use serializable payloads'),{cause:error});}
+  if(encoded.length>1_000_000)throw new RangeError('Idempotency fingerprint payload exceeds limit');
+  return createHash('sha256').update(encoded).digest('hex');
 }
 export interface EmailSendOptions {
   htmlMode?:'email'|'trusted';allowLocalAttachmentPaths?:boolean;
@@ -53,8 +72,8 @@ export function createEmailManager(options:EmailManagerOptions){
   const filter=createRecipientFilter(options.rules,options.suppressions);
   const templates=createTemplateRegistry();
   const created=new Map<string,Promise<TransportLike>>();
-  const completed=new Map<string,{until:number;result:EmailResult}>();
-  const pending=new Map<string,Promise<EmailResult>>();
+  const completed=new Map<string,{until:number;result:EmailResult;fingerprint:string}>();
+  const pending=new Map<string,{task:Promise<EmailResult>;fingerprint:string}>();
   const maxKeys=options.maxIdempotencyKeys??2000,ttl=options.idempotencyTtlMs??5*60_000;
   if(!Number.isSafeInteger(maxKeys)||maxKeys<1||maxKeys>100000||!Number.isSafeInteger(ttl)||ttl<1||ttl>86_400_000)throw new RangeError('Invalid idempotency policy');
   let closed=false;
@@ -131,8 +150,28 @@ export function createEmailManager(options:EmailManagerOptions){
         if(blocked)throw Object.assign(new Error('Recipient suppressed from marketing'),{code:'EMAIL_SUPPRESSED'});
       }
     }
-    const result=redactResult(await transport.sendMail(data),name);
-    if(trackingEnabled&&options.tracking?.onSent){
+    // Provider-independent account health gate, executed immediately before SMTP acceptance.
+    if(options.reputation){
+      let decision;
+      try{decision=await options.reputation.checkBeforeSend(name,merged.purpose!);}
+      catch(error){
+        if(marketing)throw Object.assign(new Error('Reputation store unavailable'),{code:'EMAIL_REPUTATION_UNAVAILABLE'});
+        try{options.onReputationError?.(error);}catch{/* Logging must not interrupt transactional mail */}
+      }
+      if(decision?.allowed===false)throw Object.assign(new Error('Sender reputation paused'),{code:'EMAIL_REPUTATION_PAUSED'});
+    }
+    const reported=await transport.sendMail(data);
+    const outcome=classifySmtpAcceptance([...to,...cc,...bcc],reported);
+    const result={...redactResult(reported,name),accepted:outcome.accepted,rejected:outcome.rejected,submissionStatus:outcome.status,acceptanceComplete:outcome.complete};
+    if(outcome.warning){try{options.onSmtpWarning?.({account:name,status:outcome.status,reason:outcome.warning});}catch{/* Diagnostics must not change SMTP acceptance */}}
+    if(options.reputation){
+      // Accepted SMTP recipients only. Do not retry an accepted email because telemetry failed.
+      for(const address of result.accepted){
+        try{await options.reputation.recordAccepted(name,address,result.messageId??trackingId);}
+        catch(error){try{options.onReputationError?.(error);}catch{/* report only */}}
+      }
+    }
+    if(trackingEnabled&&result.accepted.length>0&&options.tracking?.onSent){
       // Mail has been accepted. Telemetry failures must not trigger a duplicate send/retry.
       try{await options.tracking.onSent({id:trackingId,account:name,message:merged,result});}
       catch(error){warnTracking(error);}
@@ -148,15 +187,41 @@ export function createEmailManager(options:EmailManagerOptions){
       const name=message.account??fallback;
       if(!accounts.has(name))throw new Error(`Unknown email account: ${name}`);
       const key=message.idempotencyKey?`${name}:${message.idempotencyKey}`:undefined;
-      if(key){const prior=completed.get(key);if(prior&&prior.until>Date.now())return {...prior.result,skipped:true,reason:'idempotency replay'};
-        const running=pending.get(key);if(running)return running;}
+      // A key cannot silently acknowledge a DIFFERENT message. Streams are not safe to fingerprint.
+      const fingerprint=key?fingerprintSend(message,sendOpts):undefined;
+      if(key){const prior=completed.get(key);if(prior&&prior.until>Date.now()){
+          if(prior.fingerprint!==fingerprint)throw Object.assign(new Error('Idempotency key reused for different email'),{code:'EMAIL_IDEMPOTENCY_CONFLICT'});
+          return {...prior.result,skipped:true,reason:'idempotency replay'};
+        }
+        const running=pending.get(key);if(running){
+          if(running.fingerprint!==fingerprint)throw Object.assign(new Error('Idempotency key reused for different email'),{code:'EMAIL_IDEMPOTENCY_CONFLICT'});
+          return running.task;
+        }}
       const task=doSend(message,name,sendOpts);
-      if(key){pending.set(key,task);task.then(result=>{
+      if(key){pending.set(key,{task,fingerprint:fingerprint!});task.then(result=>{
         for(const [old,item] of completed){if(item.until<=Date.now())completed.delete(old);}
         if(completed.size>=maxKeys)completed.delete(completed.keys().next().value!);
-        completed.set(key,{until:Date.now()+ttl,result});
-      },()=>{}).finally(()=>{if(pending.get(key)===task)pending.delete(key);}).catch(()=>{});}
+        completed.set(key,{until:Date.now()+ttl,result,fingerprint:fingerprint!});
+      },()=>{}).finally(()=>{if(pending.get(key)?.task===task)pending.delete(key);}).catch(()=>{});}
       return task;
+    },
+    /** Explicit failover while the SMTP command has NOT started. Never retry on a send() error.
+     * Requires a real verify() method; custom transports without verification are not failover candidates. */
+    async sendWithVerifiedFailover(message:EmailMessage,names:readonly string[],sendOpts:EmailSendOptions={}):Promise<EmailResult>{
+      if(closed)throw new Error('Email manager closed');
+      if(!Array.isArray(names)||names.length<1||names.length>10||new Set(names).size!==names.length||
+        names.some(name=>typeof name!=='string'||!accounts.has(name)))throw new TypeError('Invalid SMTP failover accounts');
+      if(message.account!==undefined&&message.account!==names[0])throw new TypeError('Failover primary must match selected account');
+      let selected:string|undefined;
+      for(const name of names){
+        const account=accounts.get(name)!;if(account.enabled===false)continue;
+        let transport:TransportLike;try{transport=await transporter(name);}catch{continue;}
+        if(typeof transport.verify!=='function')continue;
+        try{if(await transport.verify()===true){selected=name;break;}}catch{/* Safe to try another account before sending any message */}
+      }
+      if(!selected)throw Object.assign(new Error('No verified SMTP account available; no message submitted'),{code:'EMAIL_NO_VERIFIED_TRANSPORT'});
+      // Once send begins, no automatic retry or failover is safe: SMTP acceptance might be uncertain.
+      return manager.send({...message,account:selected},sendOpts);
     },
     async sendBatch(messages:readonly EmailMessage[],settings:{concurrency?:number;continueOnError?:boolean}={}):Promise<({ok:true;result:EmailResult}|{ok:false;error:Error})[]>{
       const workers=settings.concurrency??3;
